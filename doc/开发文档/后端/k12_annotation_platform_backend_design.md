@@ -1,6 +1,6 @@
 # 文档数据采集与标注平台后端设计文档
 
-版本：v0.3  
+版本：v0.5
 日期：2026-05-26  
 依据文档：
 
@@ -9,6 +9,88 @@ k12_annotation_platform_design.md
 paddleocr_vl_official_reference.md
 k12_exam_paper_requirements_eval_focused.md
 ```
+
+## 目录
+
+- 版本记录
+- 1. 后端目标
+- 2. 技术栈引用开发规范
+  - 2.1 为什么不用纯文件系统
+- 3. 总体架构
+- 4. 场景扩展模型
+- 5. 数据分层
+  - 5.1 文件资产层
+  - 5.2 数据库元数据层
+  - 5.3 JSON 主数据层
+- 6. 存储目录设计
+- 7. 核心数据库表
+  - 7.1 projects
+  - 7.2 users
+  - 7.3 role_registry
+  - 7.4 project_members
+  - 7.5 member_role_bindings
+  - 7.6 assets
+  - 7.7 documents
+  - 7.8 pages
+  - 7.9 paddleocr_vl_runs
+  - 7.10 paddleocr_vl_run_outputs
+  - 7.11 annotation_revisions
+  - 7.12 annotation_objects
+  - 7.13 relation_objects
+  - 7.14 label_registry
+  - 7.15 relation_registry
+  - 7.16 qc_results
+  - 7.17 review_records
+  - 7.18 export_jobs
+  - 7.19 background_jobs
+  - 7.20 audit_logs
+- 8. 标注主 JSON
+- 9. API 设计
+  - 9.1 认证、用户与角色管理
+  - 9.2 项目与配置
+  - 9.3 数据导入
+  - 9.4 PaddleOCR-VL 预标注
+  - 9.5 标注 revision
+  - 9.6 标注对象与关系
+  - 9.7 质检
+  - 9.8 复核
+  - 9.9 导出
+  - 9.10 后台任务
+- 10. 核心业务流程
+  - 10.1 数据导入流程
+  - 10.2 PaddleOCR-VL 预标注流程
+  - 10.3 标注保存流程
+  - 10.4 复核流程
+  - 10.5 回滚流程
+- 11. 质检设计
+  - 11.1 Schema QC
+  - 11.2 Geometry QC
+  - 11.3 Scenario Structure QC
+  - 11.4 Dataset QC
+  - 11.5 Export QC
+- 12. 导出器设计
+  - 12.1 Exporter 接口
+  - 12.2 PP-DocLayoutV3 Exporter
+  - 12.3 场景导出器示例：K12 Question JSON Exporter
+  - 12.4 Statistics Report Exporter
+- 13. 权限设计
+  - 13.1 角色权限
+  - 13.2 锁定规则
+- 14. 并发与冲突处理
+- 15. 备份与恢复
+  - 15.1 备份内容
+  - 15.2 备份频率
+  - 15.3 恢复要求
+- 16. 错误处理与审计
+  - 16.1 错误处理
+  - 16.2 审计日志
+- 17. MVP 开发拆分
+  - 17.1 第一阶段
+  - 17.2 第二阶段
+  - 17.3 第三阶段
+  - 17.4 第四阶段
+- 18. 验收标准
+- 19. 关键结论
 
 ---
 
@@ -19,6 +101,8 @@ k12_exam_paper_requirements_eval_focused.md
 | v0.1 | 2026-05-21 | 初版后端设计文档，定义平台目标、架构、数据分层、核心表、API、流程、质检、导出器和验收标准。 |
 | v0.2 | 2026-05-26 | 调整文档边界：技术栈细节统一引用后端开发规范；异步任务统一为 Celery；保留架构、表、API、流程和模块设计。 |
 | v0.3 | 2026-05-26 | 章节名调整为“技术栈引用开发规范”；收敛架构与 MVP 中的具体框架表述，继续保留架构、表、API、流程和模块设计。 |
+| v0.4 | 2026-05-26 | 补充角色管理模块：用户、角色、项目成员、成员角色绑定、权限矩阵、角色管理 API 和审计要求。 |
+| v0.5 | 2026-05-26 | 补充 read_order 人工标注的后端承接规则：随整页 revision 保存、重建索引、导出前校验缺失/重复/非连续排序。 |
 
 ---
 
@@ -48,7 +132,7 @@ k12_exam_paper_requirements_eval_focused.md
 具体技术栈、依赖版本、代码目录、配置、测试、安全和加密规范，以后端开发规范为准：
 
 ```text
-doc/开发文档/backend_development_spec.md
+doc/开发文档/后端/backend_development_spec.md
 ```
 
 本设计文档只描述系统能力、模块边界、数据结构、API、业务流程、质检流程和导出流程；不重复维护依赖清单、代码风格、安全实现细则或本地开发命令。
@@ -308,7 +392,108 @@ created_at
 updated_at
 ```
 
-### 7.2 assets
+### 7.2 users
+
+保存平台用户。用户是审计、创建人、复核人、导出人和权限校验的基础事实来源。
+
+```text
+id
+username
+email
+display_name
+password_hash
+status                active / disabled / pending
+is_system_admin
+last_login_at
+created_at
+updated_at
+deleted_at
+```
+
+约束：
+
+```text
+username 唯一。
+email 建唯一索引，可为空但一旦填写必须唯一。
+password_hash 不可返回给前端。
+disabled 用户不能登录，也不能创建新任务。
+is_system_admin 只用于系统级初始化、全局用户管理和紧急维护，不替代项目内角色。
+```
+
+### 7.3 role_registry
+
+保存系统内置角色定义。MVP 角色固定，后续可扩展为可配置角色。
+
+```text
+id
+role_key              viewer / annotator / reviewer / data_manager / exporter / project_admin / system_admin
+display_name
+scope                 system / project
+description
+permissions_json
+is_builtin
+is_active
+created_at
+updated_at
+```
+
+说明：
+
+```text
+system_admin 是系统级角色，只能授予少量管理员账号。
+project_admin 是项目级管理员，负责项目成员、标签、关系、锁定和回滚。
+viewer / annotator / reviewer / data_manager / exporter 是项目级角色，可在不同项目中分别授予。
+permissions_json 是后端 capability 计算的来源之一，前端只消费 capabilities，不自行推导安全权限。
+```
+
+### 7.4 project_members
+
+保存用户在项目中的成员关系。一个用户可以在不同项目拥有不同角色。
+
+```text
+id
+project_id
+user_id
+member_status         active / disabled / invited / removed
+joined_at
+created_by
+created_at
+updated_at
+removed_at
+```
+
+约束：
+
+```text
+(project_id, user_id) 唯一。
+removed 成员不能访问项目数据。
+disabled 成员保留历史审计引用，但不能继续操作。
+```
+
+### 7.5 member_role_bindings
+
+保存项目成员与项目级角色的绑定关系。
+
+```text
+id
+project_member_id
+role_id
+granted_by
+granted_at
+revoked_by
+revoked_at
+status                active / revoked
+```
+
+约束：
+
+```text
+同一 project_member_id + role_id 同时只能有一个 active 绑定。
+角色变更必须写 audit_logs。
+权限校验以 active 绑定为准。
+```
+
+### 7.6 assets
 
 保存文件级资产。
 
@@ -335,7 +520,7 @@ sha256 建唯一索引或局部唯一索引。
 readonly=true 的资产禁止覆盖。
 ```
 
-### 7.3 documents
+### 7.7 documents
 
 ```text
 id
@@ -359,7 +544,7 @@ domain_metadata_json 保存场景字段，例如 K12 的 subject、grade、exam_
 平台核心不把 subject / grade / exam_type 作为固定字段。
 ```
 
-### 7.4 pages
+### 7.8 pages
 
 ```text
 id
@@ -384,7 +569,7 @@ updated_at
 (visual_difficulty)
 ```
 
-### 7.5 paddleocr_vl_runs
+### 7.9 paddleocr_vl_runs
 
 ```text
 id
@@ -425,7 +610,7 @@ vl_rec_server_url
 restructure_pages parameters
 ```
 
-### 7.6 paddleocr_vl_run_outputs
+### 7.10 paddleocr_vl_run_outputs
 
 ```text
 id
@@ -440,7 +625,7 @@ checksum_json
 created_at
 ```
 
-### 7.7 annotation_revisions
+### 7.11 annotation_revisions
 
 ```text
 id
@@ -466,7 +651,7 @@ locked revision 不允许修改。
 回滚创建新 revision，不覆盖旧 revision。
 ```
 
-### 7.8 annotation_objects
+### 7.12 annotation_objects
 
 从 annotation revision JSON 抽取的索引表。
 
@@ -495,7 +680,17 @@ created_at
 GIST / SP-GiST 空间索引可后续增加
 ```
 
-### 7.9 relation_objects
+read_order 说明：
+
+```text
+1. read_order 的事实来源是 annotation revision JSON，不是 annotation_objects 索引表。
+2. 前端 read_order 模式或属性面板修改排序后，随整页 annotation JSON 一起提交。
+3. 后端保存新 revision 后，从 revision JSON 抽取 read_order 并重建 annotation_objects 索引。
+4. MVP 不需要单独 read_order API；后续对象级 patch API 可复用同一套 revision 规则。
+5. read_order_source、read_order_confirmed 等辅助字段可先放入 attributes_json，用于区分人工确认和自动建议。
+```
+
+### 7.13 relation_objects
 
 ```text
 id
@@ -509,7 +704,7 @@ status
 created_at
 ```
 
-### 7.10 label_registry
+### 7.14 label_registry
 
 ```text
 id
@@ -534,7 +729,7 @@ paddle.layout.* 官方 PP-DocLayoutV3 25 类
 scenario.* 或具体场景命名空间，例如 k12.*、medical.*、invoice.*
 ```
 
-### 7.11 relation_registry
+### 7.15 relation_registry
 
 ```text
 id
@@ -549,7 +744,7 @@ created_at
 updated_at
 ```
 
-### 7.12 qc_results
+### 7.16 qc_results
 
 ```text
 id
@@ -565,7 +760,7 @@ created_at
 created_by_job_id
 ```
 
-### 7.13 review_records
+### 7.17 review_records
 
 ```text
 id
@@ -576,7 +771,7 @@ comment
 created_at
 ```
 
-### 7.14 export_jobs
+### 7.18 export_jobs
 
 ```text
 id
@@ -596,7 +791,7 @@ finished_at
 error_message
 ```
 
-### 7.15 background_jobs
+### 7.19 background_jobs
 
 ```text
 id
@@ -610,6 +805,36 @@ created_at
 started_at
 finished_at
 error_message
+```
+
+### 7.20 audit_logs
+
+保存关键操作审计记录。角色变更、成员管理、锁定、回滚、导出和原始数据下载必须写审计。
+
+```text
+id
+project_id
+actor_id
+action
+resource_type
+resource_id
+before_json
+after_json
+request_id
+ip_address
+user_agent
+created_at
+prev_hash
+entry_hash
+```
+
+约束：
+
+```text
+audit_logs 只追加，不更新。
+actor_id 指向 users.id。
+角色授予、撤销、成员禁用、导出下载、锁定和回滚属于必须审计操作。
+prev_hash / entry_hash 后续可用于审计日志哈希链。
 ```
 
 ---
@@ -670,23 +895,55 @@ status
 
 ## 9. API 设计
 
-### 9.1 认证与用户
+### 9.1 认证、用户与角色管理
 
 ```text
 POST /api/auth/login
 POST /api/auth/logout
 GET  /api/me
+
+GET  /api/users
+POST /api/users
+GET  /api/users/{user_id}
+PATCH /api/users/{user_id}
+POST /api/users/{user_id}/disable
+POST /api/users/{user_id}/enable
+
+GET  /api/roles
+
+GET  /api/projects/{project_id}/members
+POST /api/projects/{project_id}/members
+PATCH /api/projects/{project_id}/members/{member_id}
+DELETE /api/projects/{project_id}/members/{member_id}
+
+GET  /api/projects/{project_id}/members/{member_id}/roles
+PUT  /api/projects/{project_id}/members/{member_id}/roles
+
+GET  /api/projects/{project_id}/me/capabilities
 ```
 
 角色：
 
 ```text
-admin
+system_admin
+project_admin
 data_manager
 annotator
 reviewer
 exporter
 viewer
+```
+
+角色管理规则：
+
+```text
+1. users 是系统级账号，不直接代表项目权限。
+2. project_members 决定用户是否属于某个项目。
+3. member_role_bindings 决定用户在该项目内拥有的项目角色。
+4. 一个用户可在不同项目拥有不同角色。
+5. 前端应优先消费 capabilities，不直接根据 role_key 自行推断是否可操作。
+6. 角色授予、撤销、成员禁用、成员移除必须写 audit_logs。
+7. system_admin 只能做系统级用户初始化和全局维护；普通项目操作仍应通过项目成员角色校验。
 ```
 
 ### 9.2 项目与配置
@@ -770,6 +1027,15 @@ POST /api/annotation-revisions/{revision_id}/rollback
 ```
 
 保存 revision 时，后端不覆盖旧 revision。
+
+read_order 保存规则：
+
+```text
+1. read_order 是标注对象字段的一部分，随整页 annotation revision 提交。
+2. 后端只校验类型、范围和同页一致性，不自动覆盖人工 read_order。
+3. PaddleOCR-VL 或自动排序产生的 read_order 只能作为候选值，是否写入 gold draft 由前端人工确认。
+4. 保存后重建 annotation_objects.read_order，供查询、QC 和导出使用。
+```
 
 ### 9.6 标注对象与关系
 
@@ -892,7 +1158,7 @@ POST /api/jobs/{job_id}/cancel
 
 ```text
 1. 前端加载 latest revision 或初始化空 annotation。
-2. 用户编辑 bbox / quad / polygon / relations。
+2. 用户编辑 bbox / quad / polygon / read_order / relations。
 3. 前端提交整页 annotation JSON。
 4. 后端校验 schema。
 5. 后端创建新 revision。
@@ -910,7 +1176,7 @@ POST /api/jobs/{job_id}/cancel
 3. reviewer 在 review queue 中领取。
 4. reviewer 批准、拒绝或要求修正。
 5. 批准后 revision 状态变为 reviewed。
-6. eval 数据可由 admin 锁定。
+6. eval 数据可由 project_admin 锁定。
 ```
 
 ### 10.5 回滚流程
@@ -1001,8 +1267,11 @@ category_id 稳定且唯一
 COCO bbox 为 [x, y, width, height]
 segmentation 非空
 area > 0
-read_order 为非负整数
-同一 image 的 read_order 连续
+导出对象必须有 read_order
+read_order 为正整数
+同一 image 的 read_order 不重复
+同一 image 的 read_order 在过滤导出对象后连续
+自动建议排序未人工确认时按 export_profile 配置 warning 或 failed
 categories 与 export_profile 一致
 ```
 
@@ -1157,8 +1426,70 @@ data_manager
 exporter
   创建导出任务，下载导出包。
 
-admin
-  管理标签、关系、用户、锁定数据、回滚 revision。
+project_admin
+  管理本项目标签、关系、项目成员、锁定数据、回滚 revision。
+
+system_admin
+  管理系统用户、初始化全局角色、处理跨项目紧急维护。
+```
+
+角色作用域：
+
+```text
+system_admin 是系统级角色，不绑定具体项目。
+viewer / annotator / reviewer / data_manager / exporter / project_admin 都是项目级角色。
+一个用户可以在 A 项目是 reviewer，在 B 项目是 viewer。
+同一个项目成员可以同时拥有多个项目级角色，例如 data_manager + annotator。
+```
+
+后端对外可返回 capabilities，前端按 capabilities 展示或禁用入口：
+
+```text
+can_view_project
+can_upload_assets
+can_import_pages
+can_create_annotation_revision
+can_submit_revision
+can_review_revision
+can_manage_labels
+can_manage_relations
+can_manage_project_members
+can_create_export_job
+can_download_export
+can_lock_revision
+can_unlock_revision
+can_rollback_revision
+can_view_audit_log
+```
+
+MVP 权限矩阵：
+
+| 能力 | viewer | annotator | reviewer | data_manager | exporter | project_admin | system_admin |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 查看项目和页面 | 是 | 是 | 是 | 是 | 是 | 是 | 跨项目维护 |
+| 下载授权后的页面预览 | 是 | 是 | 是 | 是 | 是 | 是 | 跨项目维护 |
+| 上传原始数据 | 否 | 否 | 否 | 是 | 否 | 是 | 否 |
+| 导入页面 | 否 | 否 | 否 | 是 | 否 | 是 | 否 |
+| 创建标注 revision | 否 | 是 | 否 | 否 | 否 | 是 | 否 |
+| 提交复核 | 否 | 是 | 否 | 否 | 否 | 是 | 否 |
+| 复核 revision | 否 | 否 | 是 | 否 | 否 | 是 | 否 |
+| 管理标签和关系 | 否 | 否 | 否 | 否 | 否 | 是 | 否 |
+| 创建导出任务 | 否 | 否 | 否 | 否 | 是 | 是 | 否 |
+| 下载导出包 | 否 | 否 | 否 | 否 | 是 | 是 | 否 |
+| 锁定 / 解锁 revision | 否 | 否 | 否 | 否 | 否 | 是 | 否 |
+| 回滚 revision | 否 | 否 | 否 | 否 | 否 | 是 | 否 |
+| 管理项目成员 | 否 | 否 | 否 | 否 | 否 | 是 | 否 |
+| 管理系统用户 | 否 | 否 | 否 | 否 | 否 | 否 | 是 |
+| 查看审计日志 | 否 | 否 | 否 | 否 | 否 | 是 | 是 |
+
+权限校验规则：
+
+```text
+1. 所有写接口必须由后端基于 user_id + project_id 计算 capabilities。
+2. 前端隐藏或禁用按钮只是用户体验，不作为安全边界。
+3. locked / eval locked 数据的修改必须叠加锁定规则校验。
+4. 导出和下载必须同时校验角色、数据 split、锁定状态和 download token。
+5. 角色变更不能影响历史 created_by、reviewer_id、export created_by 的可追溯性。
 ```
 
 ### 13.2 锁定规则
@@ -1167,7 +1498,7 @@ admin
 locked document/page/revision 不允许直接修改。
 修正 locked 数据必须创建新 revision。
 eval locked 数据默认不能进入训练导出。
-admin 才能解除锁定或批准特殊导出。
+project_admin 才能解除锁定或批准特殊导出。
 ```
 
 ---
@@ -1198,6 +1529,8 @@ annotation revision json
 paddleocr_vl run outputs
 export configs and reports
 label / relation registry
+users / role_registry / project_members / member_role_bindings
+audit_logs
 ```
 
 ### 15.2 备份频率
@@ -1272,12 +1605,13 @@ request_id
 
 ```text
 1. 后端 API 项目骨架。
-2. PostgreSQL 表：assets / documents / pages / annotation_revisions。
+2. PostgreSQL 表：users / role_registry / project_members / member_role_bindings / assets / documents / pages / annotation_revisions。
 3. 文件上传、sha256、raw asset 归档。
 4. 页面列表和图片访问 API。
 5. annotation revision 整页保存和读取。
 6. label_registry 内置 PP-DocLayoutV3 25 类，并支持按 scenario_profile 加载场景扩展类。
 7. 基础 schema / geometry QC。
+8. 基础登录、项目成员、角色绑定和 capabilities API。
 ```
 
 ### 17.2 第二阶段
@@ -1326,7 +1660,9 @@ request_id
 7. 能保存 PaddleOCR-VL run_config 和 run 输出路径。
 8. 能导出 PP-DocLayoutV3 COCOInstSegDataset + read_order。
 9. 能通过场景导出器导出业务目标格式；K12 场景下可导出 K12 Question JSON。
-10. locked eval 数据不能被普通用户修改或导出到训练集。
+10. 能为项目成员授予和撤销 viewer / annotator / reviewer / data_manager / exporter / project_admin 角色。
+11. 前端可通过 capabilities 判断当前用户在项目内的可用操作。
+12. locked eval 数据不能被普通用户修改或导出到训练集。
 ```
 
 ---
