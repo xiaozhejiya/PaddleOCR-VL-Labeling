@@ -1,7 +1,7 @@
 # 文档数据采集与标注平台后端设计文档
 
-版本：v0.5
-日期：2026-05-26  
+版本：v0.7
+日期：2026-05-27
 依据文档：
 
 ```text
@@ -103,6 +103,8 @@ k12_exam_paper_requirements_eval_focused.md
 | v0.3 | 2026-05-26 | 章节名调整为“技术栈引用开发规范”；收敛架构与 MVP 中的具体框架表述，继续保留架构、表、API、流程和模块设计。 |
 | v0.4 | 2026-05-26 | 补充角色管理模块：用户、角色、项目成员、成员角色绑定、权限矩阵、角色管理 API 和审计要求。 |
 | v0.5 | 2026-05-26 | 补充 read_order 人工标注的后端承接规则：随整页 revision 保存、重建索引、导出前校验缺失/重复/非连续排序。 |
+| v0.6 | 2026-05-27 | 明确 `pages.page_id` 是前端工作台路由使用的全局唯一、不可变公开 id，并要求数据库唯一约束。 |
+| v0.7 | 2026-05-27 | 收紧 page 字段语义：`pages.id` 为内部主键，`pages.page_id` 为公开稳定 id，API path 使用公开 id，数据库外键使用 `page_db_id` 命名。 |
 
 ---
 
@@ -381,6 +383,17 @@ data/
 
 ## 7. 核心数据库表
 
+全局字段命名约定：
+
+```text
+1. `pages.id` 是数据库内部主键，只用于数据库关联、ORM relation 和内部查询。
+2. `pages.page_id` 是公开稳定 id，用于前端路由、API path、审计展示和可分享链接。
+3. 所有 API path 中的 `{page_id}` 均指 `pages.page_id`，不指 `pages.id`。
+4. 数据库表如果外键引用 `pages.id`，字段必须命名为 `page_db_id`。
+5. 数据库表不得用 `page_id` 表示内部外键，避免与公开 id 混淆。
+6. JSON 主数据、API 请求响应和导出 manifest 中的 `page_id` 默认指公开稳定 id；如需返回内部主键，必须使用 `page_db_id` 或 `internal_page_id` 这类明确名称，且默认不返回给前端。
+```
+
 ### 7.1 projects
 
 ```text
@@ -564,9 +577,19 @@ updated_at
 索引：
 
 ```text
+(page_id) 唯一
 (document_id, page_index)
 (status)
 (visual_difficulty)
+```
+
+约束：
+
+```text
+page_id 是前端 `/app/pages/:page_id` 使用的公开路由 id，必须全局唯一且不可变。
+page_id 由后端生成，前端不得自行生成或修改。
+page_id 不用于表达项目层级；页面所属项目必须通过 document_id -> documents.project_id 追溯。
+如果后续无法保证 page_id 全局唯一，必须同步改造前端工作台路由、API 和测试，不得只依赖 `(document_id, page_index)` 定位页面。
 ```
 
 ### 7.9 paddleocr_vl_runs
@@ -615,7 +638,7 @@ restructure_pages parameters
 ```text
 id
 run_id
-page_id
+page_db_id
 raw_res_json_asset_id
 markdown_asset_id
 visualization_asset_id
@@ -631,7 +654,7 @@ created_at
 id
 project_id
 document_id
-page_id
+page_db_id
 revision_no
 parent_revision_id
 annotation_json_asset_id
@@ -646,7 +669,7 @@ change_reason
 约束：
 
 ```text
-(page_id, revision_no) 唯一。
+(page_db_id, revision_no) 唯一。
 locked revision 不允许修改。
 回滚创建新 revision，不覆盖旧 revision。
 ```
@@ -750,7 +773,7 @@ updated_at
 id
 project_id
 document_id
-page_id
+page_db_id
 revision_id
 qc_type               schema / geometry / k12_structure / dataset / export
 status                passed / warning / failed
@@ -894,6 +917,16 @@ status
 ---
 
 ## 9. API 设计
+
+API id 语义：
+
+```text
+1. API path 中的 `{page_id}` 始终表示 `pages.page_id` 公开稳定 id。
+2. API 请求体或响应体中的 `page_id` / `page_ids` 默认也表示公开稳定 id。
+3. API 默认不向前端返回 `pages.id` 内部主键。
+4. 如果内部排查或管理接口必须返回页面内部主键，字段名必须使用 `page_db_id` 或 `internal_page_id`，不能使用 `page_id`。
+5. 服务端接收 `{page_id}` 后，应先解析为 `pages.page_id`，再在内部转换为 `pages.id` / `page_db_id` 做数据库关联和权限校验。
+```
 
 ### 9.1 认证、用户与角色管理
 

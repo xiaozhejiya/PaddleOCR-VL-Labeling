@@ -1,13 +1,14 @@
 # 文档标注平台前端开发规范
 
-版本：v0.4  
-日期：2026-05-26  
+版本：v0.6
+日期：2026-05-27
 参考：
 
 ```text
 doc/开发文档/后端/k12_annotation_platform_backend_design.md
 doc/开发文档/k12_annotation_platform_design.md
 doc/开发文档/后端/backend_development_spec.md
+doc/开发文档/前端/frontend_routing_spec.md
 doc/开发文档/前端/frontend_component_library_spec.md
 ```
 
@@ -56,6 +57,8 @@ doc/开发文档/前端/frontend_component_library_spec.md
 | v0.2 | 2026-05-26 | 拆分前端组件库规范，明确颜色 token、组件规格和视觉复用规则由 `frontend_component_library_spec.md` 维护。 |
 | v0.3 | 2026-05-26 | 补充角色管理前端边界：前端消费后端 capabilities，提供项目成员与角色管理界面，但不承担最终权限判断。 |
 | v0.4 | 2026-05-26 | 补充国际化与本地化规范，明确前端多语言能力、文案 key、locale、格式化、错误文案和测试要求。 |
+| v0.5 | 2026-05-27 | 同步前端路由专题文档，明确路由契约由 `frontend_routing_spec.md` 维护，总规范只保留工程入口约束。 |
+| v0.6 | 2026-05-27 | 修正路由总规范口径：未知路径统一进入 404；项目任务和导出改为项目详情 tab URL 示例，避免误写为 route path。 |
 
 ---
 
@@ -77,10 +80,11 @@ doc/开发文档/后端/backend_development_spec.md
 
 已拆分的前端专题文档：
 doc/开发文档/前端/annotation_workspace_interaction_spec.md
+doc/开发文档/前端/frontend_routing_spec.md
 doc/开发文档/前端/frontend_component_library_spec.md
 
 后续如需要再单独补充：
-产品流程、MVP 路由契约、质量和可访问性专项规范。
+产品流程、质量和可访问性专项规范。
 ```
 
 本文中的接口路径、页面名、状态名、组件名和标注对象名，只作为前端工程实现约束的示例或引用，不作为新的业务设计来源。
@@ -385,6 +389,12 @@ export default defineConfig({
 
 推荐使用 Vue Router 4 的 history 模式。
 
+完整 route name、params、Query、meta、history fallback、离页拦截和错误路由契约以以下文档为准：
+
+```text
+doc/开发文档/前端/frontend_routing_spec.md
+```
+
 路由分组：
 
 ```text
@@ -393,26 +403,34 @@ export default defineConfig({
 
 /auth/login
 /auth/register
-  认证页。
+  认证页。注册页默认禁用，仅部署配置开放注册时启用。
 
 /app
 /app/projects
 /app/projects/:project_id
 /app/pages/:page_id
-/app/jobs
-/app/exports
 /app/settings
   工作台页面。
 ```
+
+项目详情 tab URL 示例：
+
+```text
+/app/projects/:project_id?tab=jobs
+/app/projects/:project_id?tab=exports
+```
+
+`tab=jobs|exports` 是 Query，不是 route path 配置。MVP 项目内任务和导出视图挂在项目详情页下，不定义全局 `/app/jobs` 和 `/app/exports`。
 
 要求：
 
 ```text
 1. 受保护页面使用 `meta.requiresAuth`。
 2. 路由守卫只做认证检查、权限前置判断和轻量跳转，不发起业务写操作。
-3. 页面刷新后必须能恢复认证状态和当前路由。
-4. 未知路径统一进入可解释的 404 或工作台默认页。
+3. 页面刷新后必须能恢复认证状态和当前路由，生产部署必须配置 history fallback。
+4. 未知路径统一进入可解释的 404。
 5. 页面级组件应懒加载。
+6. 项目上下文来源使用 `projectContextSource` 表达，不能只用布尔值误判工作台 page_id 路由。
 ```
 
 布局：
