@@ -1,7 +1,7 @@
 # 文档标注平台后端开发规范
 
-版本：v0.5
-日期：2026-05-26  
+版本：v0.6
+日期：2026-05-29  
 参考：
 
 ```text
@@ -70,6 +70,7 @@ doc/PaddleOCR技术文档/paddleocr_vl_official_reference.md
   - 16.1 Python
   - 16.2 格式化
   - 16.3 命名
+  - 16.4 注释规范
 - 17. 本地开发流程
   - 17.1 准备环境
   - 17.2 启动依赖
@@ -91,6 +92,7 @@ doc/PaddleOCR技术文档/paddleocr_vl_official_reference.md
 | v0.3 | 2026-05-26 | 补充加密工程方案：TLS、签名 URL、HMAC 请求签名、文件哈希、导出 manifest 签名、信封加密、KMS/Vault、审计日志哈希链和密钥轮换。 |
 | v0.4 | 2026-05-26 | 明确开发规范边界：保留技术栈、依赖、代码规范、安全规范和加密规范；业务架构、表、API、流程和模块设计以后端设计文档为准。 |
 | v0.5 | 2026-05-26 | 补充角色与权限实现规范：后端基于 user_id + project_id 计算 capabilities，角色变更必须审计，前端角色仅作展示。 |
+| v0.6 | 2026-05-29 | 新增后端代码注释规范，明确何时必须写注释、注释内容要求和禁止项。 |
 
 ---
 
@@ -394,7 +396,6 @@ JWT_SECRET_KEY=change-me
 JWT_EXPIRE_MINUTES=1440
 
 PADDLEOCR_VL_ENABLED=false
-PADDLEOCR_VL_MODEL_DIR=
 ```
 
 禁止：
@@ -1441,6 +1442,43 @@ pytest backend/tests
 API 路径：kebab-case 或 snake_case 统一，推荐 kebab-case
 ```
 
+### 16.4 注释规范
+
+目标：
+
+```text
+注释用于解释“为什么这样实现”和“边界条件”，不是逐行翻译代码。
+```
+
+必须写注释的场景：
+
+```text
+1. 权限判定、角色能力合并、拒绝原因映射。
+2. 并发控制、幂等策略、重试策略、锁使用边界。
+3. 事务边界、回滚策略、补偿逻辑。
+4. 安全处理：签名、加密、脱敏、敏感字段裁剪。
+5. 几何转换、坐标系换算、导出格式映射。
+6. 与外部协议或历史兼容相关的非直观实现。
+```
+
+注释要求：
+
+```text
+1. 使用中文，简洁明确，优先写在代码块上方。
+2. 说明输入假设、关键约束、失败路径，不重复函数名含义。
+3. 复杂函数建议补充 docstring，至少说明参数、返回值和异常语义。
+4. 注释必须与实现同步更新；修改逻辑时同步修改注释。
+```
+
+禁止：
+
+```text
+1. 空注释或显而易见的逐行翻译注释。
+2. 过时注释与当前逻辑不一致。
+3. 保留大段注释掉的旧代码。
+4. 在注释中泄露密钥、真实地址、账号或敏感数据。
+```
+
 ---
 
 ## 17. 本地开发流程
@@ -1505,11 +1543,11 @@ pytest backend/tests
 提交信息建议：
 
 ```text
-feat: add annotation revision API
-fix: validate polygon bounds before export
-docs: add backend development spec
-test: cover PP-DocLayoutV3 exporter
-refactor: split annotation service
+feat: 新增标注版本 API
+fix: 修复导出前 polygon 边界校验
+docs: 更新后端开发规范
+test: 增加 PP-DocLayoutV3 导出器测试
+refactor: 拆分标注服务逻辑
 ```
 
 禁止：
