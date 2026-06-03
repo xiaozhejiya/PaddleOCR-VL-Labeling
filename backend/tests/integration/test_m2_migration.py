@@ -1,0 +1,56 @@
+from pathlib import Path
+
+from app.db.base import Base
+import app.db.models.core  # noqa: F401
+
+
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
+MIGRATION_PATH = BACKEND_ROOT / "alembic" / "versions" / "20260603_0001_create_core_tables.py"
+SCHEMA_SQL_PATH = BACKEND_ROOT / "sql" / "schema" / "001_create_core_tables.sql"
+
+
+def test_m2_models_register_expected_table_count() -> None:
+    assert len(Base.metadata.tables) == 16
+
+
+def test_initial_migration_is_static_snapshot() -> None:
+    source = MIGRATION_PATH.read_text(encoding="utf-8")
+
+    assert "Base.metadata" not in source
+    assert "import app.db.models" not in source
+    assert "op.create_table(" in source
+
+
+def test_builtin_role_seed_uses_documented_capabilities() -> None:
+    sources = [
+        MIGRATION_PATH.read_text(encoding="utf-8"),
+        SCHEMA_SQL_PATH.read_text(encoding="utf-8"),
+    ]
+    legacy_capability_markers = [
+        "system.admin",
+        "project.read",
+        "annotation.write",
+        "export.create",
+        "role.bind",
+        "member.manage",
+    ]
+    required_capability_markers = [
+        "can_view_project",
+        "can_create_annotation_revision",
+        "can_submit_revision",
+        "can_review_revision",
+        "can_manage_project_members",
+        "can_create_export_job",
+        "can_download_export",
+        "can_lock_revision",
+        "can_unlock_revision",
+        "can_rollback_revision",
+        "can_view_audit_log",
+        "can_manage_system_users",
+    ]
+
+    for source in sources:
+        for marker in legacy_capability_markers:
+            assert marker not in source
+        for marker in required_capability_markers:
+            assert marker in source

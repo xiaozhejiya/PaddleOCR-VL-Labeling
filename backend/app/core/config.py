@@ -4,6 +4,8 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
+
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables and .env."""
@@ -16,6 +18,10 @@ class Settings(BaseSettings):
     api_prefix: str = Field(default="/api/v1", validation_alias="API_PREFIX")
 
     database_url: str | None = Field(default=None, validation_alias="DATABASE_URL")
+    migrator_database_url: str | None = Field(
+        default=None,
+        validation_alias="MIGRATOR_DATABASE_URL",
+    )
     redis_url: str | None = Field(default=None, validation_alias="REDIS_URL")
     celery_broker_url: str | None = Field(
         default=None,
@@ -44,7 +50,7 @@ class Settings(BaseSettings):
     )
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=BACKEND_ROOT / ".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
