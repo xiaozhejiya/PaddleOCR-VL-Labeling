@@ -1,10 +1,6 @@
 from fastapi import APIRouter
 
-from app.core.health import service_health
+from app.api.v1.endpoints import health
 
 api_router = APIRouter()
-
-
-@api_router.get("/health", tags=["system"], summary="Health Check")
-async def health_check() -> dict[str, object]:
-    return service_health()
+api_router.include_router(health.router)
