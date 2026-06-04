@@ -19,6 +19,13 @@ export interface PageListResponse {
   total: number
 }
 
+export interface Capabilities {
+  can_edit: boolean
+  can_review: boolean
+  can_export: boolean
+  can_manage: boolean
+}
+
 export const pagesApi = {
   /** 获取项目页面列表 */
   list: (projectId: string, _params?: { page?: number; page_size?: number }) =>
@@ -31,4 +38,8 @@ export const pagesApi = {
   /** 获取页面图片访问 URL */
   getImageUrl: (pageId: string) =>
     api.get<{ url: string; expires_at: string }>(`/pages/${pageId}/image`),
+
+  /** 获取用户在项目中的 capabilities */
+  getCapabilities: (projectId: string) =>
+    api.get<Capabilities>(`/projects/${projectId}/me/capabilities`),
 }
