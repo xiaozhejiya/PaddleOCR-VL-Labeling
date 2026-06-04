@@ -22,3 +22,10 @@ htmlcov/
 # Local runtime artifacts
 data/
 logs/
+
+
+backend/start.bat
+
+frontend/node_modules/
+frontend/dist/
+frontend/build/
