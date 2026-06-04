@@ -1,7 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
 import { useAuth } from '@/composables/useAuth'
-import i18n from '@/i18n'
 
 /**
  * 路由 Meta 类型定义
@@ -210,13 +209,6 @@ router.beforeEach(async (to, _from, next) => {
   }
 
   next()
-})
-
-router.afterEach((to) => {
-  const meta = to.meta as AppRouteMeta
-  if (meta.titleKey) {
-    document.title = i18n.global.t(meta.titleKey)
-  }
 })
 
 export default router
