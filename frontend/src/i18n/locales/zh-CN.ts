@@ -40,13 +40,52 @@ export default {
       dirty: '未保存',
       conflict: '冲突',
       readonly: '只读',
+      autosave_pending: '待自动保存',
+      autosaving: '自动保存中...',
+      autosave_failed: '自动保存失败',
+      manual_saving: '手动保存中...',
+    },
+  },
+  workspace: {
+    taskQueue: '任务队列',
+    canvasPlaceholder: '标注画布开发中...',
+    propertiesPanel: '属性面板',
+    revisionLog: 'Revision 日志',
+    leaveConfirm: '当前有未保存的修改，确定要离开吗？',
+  },
+  // 路由标题 i18n key
+  routes: {
+    auth: {
+      login: '登录',
+      register: '注册',
+    },
+    app: {
+      home: '工作台',
+    },
+    projects: {
+      index: '项目列表',
+      detail: '项目详情',
+      tabs: {
+        jobs: '任务',
+        exports: '导出',
+      },
+    },
+    pages: {
+      workspace: '标注工作台',
+    },
+    settings: {
+      index: '设置',
+    },
+    error: {
+      forbidden: '权限不足',
+      notFound: '页面不存在',
     },
   },
   errors: {
     network: '网络错误，请检查网络连接',
     unauthorized: '未登录，请先登录',
-    forbidden: '权限不足',
-    notFound: '资源不存在',
+    forbidden: '权限不足，无法访问该资源',
+    notFound: '请求的资源不存在',
     server: '服务器错误，请稍后重试',
     unknown: '未知错误',
   },

@@ -29,6 +29,20 @@ export class ApiClientError extends Error {
 
 const BASE_URL = '/api/v1'
 
+/**
+ * HTTP 状态码对应的 i18n key
+ * 前端使用 code 映射本地化文案，不直接展示英文异常
+ */
+const STATUS_I18N_KEYS: Record<number, string> = {
+  400: 'errors.badRequest',
+  401: 'errors.unauthorized',
+  403: 'errors.forbidden',
+  404: 'errors.notFound',
+  409: 'errors.conflict',
+  422: 'errors.validation',
+  500: 'errors.server',
+}
+
 async function request<T>(
   endpoint: string,
   options: RequestInit = {}
@@ -53,7 +67,7 @@ async function request<T>(
         errorData = await response.json()
       } catch {
         errorData = {
-          message: getErrorMessage(response.status),
+          message: STATUS_I18N_KEYS[response.status] || 'errors.unknown',
           status: response.status,
         }
       }
@@ -72,23 +86,10 @@ async function request<T>(
     }
     // 网络错误
     throw new ApiClientError({
-      message: '网络错误，请检查网络连接',
+      message: 'errors.network',
       status: 0,
     })
   }
-}
-
-function getErrorMessage(status: number): string {
-  const messages: Record<number, string> = {
-    400: '请求参数错误',
-    401: '未登录，请先登录',
-    403: '权限不足',
-    404: '资源不存在',
-    409: '冲突',
-    422: '数据校验失败',
-    500: '服务器错误，请稍后重试',
-  }
-  return messages[status] || '未知错误'
 }
 
 export const api = {

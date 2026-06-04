@@ -3,6 +3,7 @@
  * 基础按钮组件
  * 支持 disabled、loading 状态
  */
+import { Loader2 } from 'lucide-vue-next'
 
 interface Props {
   variant?: 'primary' | 'secondary' | 'danger'
@@ -35,14 +36,14 @@ const sizeClasses = {
   <button
     :disabled="disabled || loading"
     :class="[
-      'rounded-md font-medium transition-colors',
+      'rounded-md font-medium transition-colors inline-flex items-center justify-center',
       'focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2',
       'disabled:opacity-50 disabled:cursor-not-allowed',
       variantClasses[variant],
       sizeClasses[size],
     ]"
   >
-    <span v-if="loading" class="inline-block animate-spin mr-2">⏳</span>
+    <Loader2 v-if="loading" class="w-4 h-4 mr-2 animate-spin" />
     <slot />
   </button>
 </template>

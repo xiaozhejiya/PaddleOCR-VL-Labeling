@@ -4,12 +4,26 @@
 export { api, ApiClientError } from './client'
 export type { ApiError } from './client'
 
-// TODO: 导出各业务 API 模块
-// export * from './auth'
-// export * from './projects'
-// export * from './assets'
-// export * from './pages'
-// export * from './annotations'
-// export * from './qc'
-// export * from './exports'
-// export * from './jobs'
+export { authApi } from './auth'
+export type { User, LoginRequest, LoginResponse } from './auth'
+
+export { projectsApi } from './projects'
+export type { Project, ProjectListResponse } from './projects'
+
+export { pagesApi } from './pages'
+export type { Page, PageListResponse } from './pages'
+
+export { annotationsApi } from './annotations'
+export type { AnnotationRevision, AnnotationDraft } from './annotations'
+
+export { assetsApi } from './assets'
+export type { Asset, AssetUploadResponse } from './assets'
+
+export { qcApi } from './qc'
+export type { QcIssue, QcListResponse, QcSeverity } from './qc'
+
+export { exportsApi } from './exports'
+export type { ExportJob, ExportListResponse, ExportStatus } from './exports'
+
+export { jobsApi } from './jobs'
+export type { Job, JobListResponse, JobStatus, JobType } from './jobs'

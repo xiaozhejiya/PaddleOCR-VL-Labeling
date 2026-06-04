@@ -40,6 +40,45 @@ export default {
       dirty: 'Unsaved',
       conflict: 'Conflict',
       readonly: 'Read Only',
+      autosave_pending: 'Auto-save Pending',
+      autosaving: 'Auto-saving...',
+      autosave_failed: 'Auto-save Failed',
+      manual_saving: 'Saving...',
+    },
+  },
+  workspace: {
+    taskQueue: 'Task Queue',
+    canvasPlaceholder: 'Annotation canvas in development...',
+    propertiesPanel: 'Properties',
+    revisionLog: 'Revision Log',
+    leaveConfirm: 'You have unsaved changes. Are you sure you want to leave?',
+  },
+  // Route title i18n keys
+  routes: {
+    auth: {
+      login: 'Login',
+      register: 'Register',
+    },
+    app: {
+      home: 'Workspace',
+    },
+    projects: {
+      index: 'Projects',
+      detail: 'Project Detail',
+      tabs: {
+        jobs: 'Jobs',
+        exports: 'Exports',
+      },
+    },
+    pages: {
+      workspace: 'Annotation Workspace',
+    },
+    settings: {
+      index: 'Settings',
+    },
+    error: {
+      forbidden: 'Access Denied',
+      notFound: 'Page Not Found',
     },
   },
   errors: {
