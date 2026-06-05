@@ -1,6 +1,6 @@
-# K12 后端（M0-M2 基线）
+# K12 后端（M0-M3 基线）
 
-本后端工程当前包含 `M0`、`M1` 和 `M2` 阶段的可运行基线，定义见：
+本后端工程当前包含 `M0`、`M1`、`M2` 和 `M3` 阶段的可运行基线，定义见：
 
 ```text
 doc/开发文档/mvp_implementation_plan.md
@@ -19,6 +19,8 @@ doc/开发文档/mvp_implementation_plan.md
 - SQLAlchemy 核心模型：`app/db/models/core.py`
 - Alembic migration：`alembic/versions/20260603_0001_create_core_tables.py`
 - 最小 repository：`app/repositories/roles.py`
+- 文件上传与只读归档：`POST /api/v1/projects/{project_id}/assets/upload`
+- M3 兼容上传入口：`POST /api/v1/assets/upload`
 - 依赖文件：
   - `requirements.txt`
   - `requirements-dev.txt`
@@ -132,3 +134,34 @@ curl http://127.0.0.1:8000/api/v1/health
 ```text
 http://127.0.0.1:8000/docs
 ```
+
+## M3 图片上传验收
+
+M3 当前支持单页图片直接导入；PDF 渲染属于后续 worker 任务能力，暂不在同步上传接口中处理。
+
+规范入口：
+
+```powershell
+$LOGIN = curl -X POST "http://127.0.0.1:8000/api/v1/auth/login" `
+  -H "Content-Type: application/json" `
+  -d "{\"username\":\"<你的用户名>\",\"password\":\"<你的密码>\"}"
+
+$TOKEN = ($LOGIN | ConvertFrom-Json).access_token
+
+curl -X POST "http://127.0.0.1:8000/api/v1/projects/1/assets/upload" `
+  -H "Authorization: Bearer $TOKEN" `
+  -F "file=@E:\path\to\paper.png"
+```
+
+兼容 MVP 任务清单的入口：
+
+```powershell
+curl -X POST "http://127.0.0.1:8000/api/v1/assets/upload" `
+  -H "Authorization: Bearer $TOKEN" `
+  -F "project_id=1" `
+  -F "file=@E:\path\to\paper.png"
+```
+
+成功后返回 `asset_id`、`document_id` 和 `page_id`。文件会写入 `STORAGE_ROOT/raw/assets/<sha256前两位>/`，数据库 `assets` 表记录 `sha256`、`size_bytes`、`mime_type` 和相对 `storage_path`。重复上传相同 sha256 文件会复用已有 asset，不覆盖 raw 原始文件。
+
+上传接口使用 `Authorization: Bearer <token>` 鉴权，并要求当前用户在项目内具备 `can_upload_assets` capability。
