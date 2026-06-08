@@ -7,8 +7,9 @@
 
 - 1. 标题格式
 - 2. 正文格式
-- 3. 标准示例
-- 4. 禁止写法
+- 3. 提交前检查
+- 4. 标准示例
+- 5. 禁止写法
 
 ---
 
@@ -64,7 +65,39 @@ refactor(backend): 将 ORM 模型迁移到 app/db/models
 5. 如果存在未完成项、兼容风险或未执行验证，必须在正文中明确说明，不能省略。
 ```
 
-## 3. 标准示例
+## 3. 提交前检查
+
+提交前按变更范围运行检查，并在 commit 正文中写明结果。
+
+后端变更至少运行：
+
+```powershell
+ruff check backend/app backend/tests
+pytest backend/tests
+```
+
+前端变更至少运行：
+
+```powershell
+npm run build
+npm run test
+```
+
+数据库 migration 变更还应验证：
+
+```powershell
+alembic upgrade head
+```
+
+要求：
+
+```text
+1. 只改文档时可以不运行构建或测试，但提交正文必须说明“仅文档变更，未运行构建或测试”。
+2. 如果某项检查因环境、依赖或数据库不可用无法执行，必须在提交正文说明原因。
+3. 涉及前后端联动时，分别运行前端和后端检查，不能只验证其中一端。
+```
+
+## 4. 标准示例
 
 ```text
 chore(frontend): 隐藏数据面板导航并记录提交规则
@@ -83,7 +116,7 @@ fix(backend): 补齐项目角色绑定审计日志
 - 验证 ruff check backend 和 pytest backend/tests 通过
 ```
 
-## 4. 禁止写法
+## 5. 禁止写法
 
 ```text
 update

@@ -1,3 +1,11 @@
+"""项目角色 repository 测试。
+
+覆盖事项：
+1. 系统级角色、停用角色和不存在的项目成员不能绑定到项目成员。
+2. 角色授予必须带审计操作者。
+3. 成功授予项目角色时必须同步写入 audit_logs 所需字段。
+"""
+
 import pytest
 
 from app.db.models import AuditLog, MemberRoleBinding, ProjectMember, RoleRegistry
@@ -23,6 +31,64 @@ def test_bind_project_role_rejects_system_role(monkeypatch: pytest.MonkeyPatch) 
             RejectingSession(),  # type: ignore[arg-type]
             project_member_id=1,
             role_code="system_admin",
+            granted_by=99,
+        )
+
+
+def test_bind_project_role_requires_audit_actor() -> None:
+    with pytest.raises(ValueError, match="granted_by"):
+        roles.bind_project_role(  # type: ignore[arg-type]
+            RejectingSession(),  # type: ignore[arg-type]
+            project_member_id=1,
+            role_code="viewer",
+            granted_by=None,
+        )
+
+
+def test_bind_project_role_rejects_inactive_role(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    inactive_role = RoleRegistry(
+        id=2,
+        code="viewer",
+        scope="project",
+        is_active=False,
+    )
+    monkeypatch.setattr(roles, "get_role_by_code", lambda _db, _code: inactive_role)
+
+    with pytest.raises(ValueError, match="not available"):
+        roles.bind_project_role(
+            RejectingSession(),  # type: ignore[arg-type]
+            project_member_id=1,
+            role_code="viewer",
+            granted_by=99,
+        )
+
+
+class MissingMemberSession:
+    def get(self, _model: type[object], _identity: int) -> object | None:
+        return None
+
+    def add(self, _value: object) -> None:
+        raise AssertionError("成员不存在时不能写入角色绑定")
+
+
+def test_bind_project_role_rejects_missing_project_member(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_role = RoleRegistry(
+        id=7,
+        code="viewer",
+        scope="project",
+        is_active=True,
+    )
+    monkeypatch.setattr(roles, "get_role_by_code", lambda _db, _code: project_role)
+
+    with pytest.raises(ValueError, match="Project member is not available"):
+        roles.bind_project_role(
+            MissingMemberSession(),  # type: ignore[arg-type]
+            project_member_id=404,
+            role_code="viewer",
             granted_by=99,
         )
 

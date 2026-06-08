@@ -6,6 +6,12 @@ import app.db.models.core  # noqa: F401
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 MIGRATION_PATH = BACKEND_ROOT / "alembic" / "versions" / "20260603_0001_create_core_tables.py"
+ROLE_MIGRATION_PATH = (
+    BACKEND_ROOT
+    / "alembic"
+    / "versions"
+    / "20260603_0002_update_builtin_role_capabilities.py"
+)
 SCHEMA_SQL_PATH = BACKEND_ROOT / "sql" / "schema" / "001_create_core_tables.sql"
 
 
@@ -54,3 +60,13 @@ def test_builtin_role_seed_uses_documented_capabilities() -> None:
             assert marker not in source
         for marker in required_capability_markers:
             assert marker in source
+
+
+def test_role_capability_data_migration_updates_existing_databases() -> None:
+    source = ROLE_MIGRATION_PATH.read_text(encoding="utf-8")
+
+    assert 'revision: str = "20260603_0002"' in source
+    assert 'down_revision: str | None = "20260603_0001"' in source
+    assert "UPDATE role_registry" in source
+    assert "can_upload_assets" in source
+    assert "project.read" in source
