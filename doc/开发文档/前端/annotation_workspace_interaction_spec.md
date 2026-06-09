@@ -43,6 +43,7 @@ E:\code\python\PPOCRLabel/libs/canvas.py
 | v0.2 | 2026-05-26 | 参考 PPOCRLabel 补充快捷键、工具模式、撤销重做、复制、排序和浏览器快捷键冲突规则。 |
 | v0.3 | 2026-05-26 | 补充自动保存交互策略，明确自动保存与 revision、冲突、只读、离页提示和浏览器本地存储的边界。 |
 | v0.4 | 2026-05-26 | 根据三次 review 修正：补自动保存 revision 成本控制，read_order 纳入 MVP，接入 capabilities，调整 Ctrl+C 语义，移除 PPOCRLabel 本机绝对路径。 |
+| v0.5 | 2026-06-09 | 更新画布渲染架构为固定视口 Canvas 矩阵渲染，补充页面缩略图导航列和翻页快捷键规范。 |
 
 ---
 
@@ -143,13 +144,25 @@ MVP 暂不实现：
 
 ## 4. 工作台布局
 
-推荐四区布局：
+推荐五区布局：
 
 ```text
-左侧：任务队列 / 页面列表 / 筛选
-中间：试卷页面画布
-右侧：对象属性 / 标签 / QC 问题
-底部：revision 状态 / 保存状态 / 后台任务简要日志
+最左侧：页面缩略图列表（PPT 风格，点击切换，当前页高亮）
+左侧：标签选择面板
+中间：试卷页面画布（固定视口 Canvas + SVG overlay）
+右侧：对象属性 / QC 问题
+底部：工具栏 / revision 状态 / 保存状态
+```
+
+页面导航：
+
+```text
+1. 最左侧面板显示同项目所有页面缩略图，点击切换当前页面。
+2. 工具栏显示上一张/下一张按钮和页码指示器（如 "3 / 20"）。
+3. 快捷键 A 切换到上一张，D 切换到下一张。
+4. 首张时禁用上一张，末张时禁用下一张。
+5. 页面切换时保留旧页面内容直到新页面加载完成，避免全屏闪烁。
+6. 页面列表和缩略图在后台异步加载，不阻塞主工作台渲染。
 ```
 
 约束：
@@ -211,23 +224,35 @@ relation
 
 ## 6. 坐标系统
 
-前端必须同时维护两套坐标：
+前端必须同时维护三套坐标：
 
 ```text
 image coordinate
   原始页面图像坐标，单位为像素。annotation JSON 中的 bbox_xyxy、quad、polygon 均使用该坐标。
 
 viewport coordinate
-  浏览器视口 / 画布容器中的显示坐标，受缩放、平移和布局影响。
+  Canvas 逻辑坐标系，固定尺寸（如 800×600），与 CSS 像素 1:1 映射。SVG overlay 的 viewBox 与此一致。
+
+screen coordinate
+  鼠标事件相对于 Canvas 元素左上角的 CSS 像素偏移。
 ```
+
+坐标转换（由 `useCanvasRenderer` 管理）：
+
+```text
+screenToImage(sx, sy)    screen → image：imgX = (sx - offsetX) / scale
+imageToViewport(ix, iy)  image → viewport：vpX = ix * scale + offsetX
+```
+
+其中 scale 和 offsetX/Y 由图片适配到固定视口时计算，随缩放/平移变化。
 
 要求：
 
 ```text
 1. 保存到后端的所有几何字段必须是 image coordinate。
-2. 鼠标事件得到的 viewport coordinate 必须先转换为 image coordinate。
+2. 鼠标事件得到的 screen coordinate 必须先转换为 image coordinate 后再存储。
 3. 缩放和平移只影响显示，不改变 annotation JSON 中的原始坐标。
-4. 坐标转换函数集中放在 `frontend/src/utils/geometry.ts`。
+4. SVG overlay 中的标注坐标使用 imageToViewport() 从 image coordinate 转换而来。
 5. 所有坐标写入前必须 clamp 到图像边界内。
 6. 坐标转换必须有单元测试覆盖缩放、平移、边界和反向转换。
 ```
@@ -253,14 +278,17 @@ quad / polygon 规则：
 
 ## 7. 画布浏览
 
+画布采用固定视口架构（`useCanvasRenderer`），Canvas 物理/CSS 尺寸锁定为 800×600，不因图片分辨率改变。图片通过矩阵变换等比缩放并居中显示在固定视口内。
+
 缩放：
 
 ```text
 1. Ctrl + 鼠标滚轮缩放。
 2. 支持工具栏按钮缩放：放大、缩小、适配宽度、适配整页、100%。
 3. 缩放中心优先使用鼠标位置；工具栏缩放以画布中心为中心。
-4. 缩放比例必须有上下限，避免图片消失或过度放大。
+4. 缩放比例必须有上下限（MIN_SCALE=0.05, MAX_SCALE=20），避免图片消失或过度放大。
 5. 缩放比例必须显示给用户。
+6. 缩放使用锚点缩放算法：保持鼠标下图片点不变，公式为 offsetX = cx - imgX * newScale。
 ```
 
 平移：
@@ -726,8 +754,8 @@ capabilities 交互规则：
 | `Ctrl + E` | 聚焦标签/属性编辑 | 有选中对象 |
 | `Ctrl + S` | 手动保存当前 draft | dirty、具备 can_create_annotation_revision、非 readonly、非 manual_saving |
 | `Esc` | 取消绘制、取消选择或关闭轻量浮层 | 按当前上下文处理 |
-| `A` | 上一页 | 非输入焦点；dirty、manual_saving、autosaving 或 autosave_failed 时先确认 |
-| `D` | 下一页 | 非输入焦点；dirty、manual_saving、autosaving 或 autosave_failed 时先确认 |
+| `A` | 上一张图片 | 非输入焦点；dirty、manual_saving、autosaving 或 autosave_failed 时先确认 |
+| `D` | 下一张图片 | 非输入焦点；dirty、manual_saving、autosaving 或 autosave_failed 时先确认 |
 
 ### 15.2 预留快捷键
 

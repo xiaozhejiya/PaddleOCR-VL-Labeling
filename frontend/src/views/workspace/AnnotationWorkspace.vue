@@ -257,8 +257,8 @@ function onKeyDown(e: KeyboardEvent) {
     if (e.key === 'w' || e.key === 'W') { activeTool.value = 'rectangle'; e.preventDefault() }
     if (e.key === 'o' || e.key === 'O') { activeTool.value = 'readingOrder'; e.preventDefault() }
     // 页面切换
-    if (e.key === '[' || e.key === 'PageUp') { goToPrevPage(); e.preventDefault() }
-    if (e.key === ']' || e.key === 'PageDown') { goToNextPage(); e.preventDefault() }
+    if (e.key === 'a' || e.key === 'A') { goToPrevPage(); e.preventDefault() }
+    if (e.key === 'd' || e.key === 'D') { goToNextPage(); e.preventDefault() }
   }
   // Ctrl+S 保存
   if ((e.ctrlKey || e.metaKey) && e.key === 's') {
@@ -304,13 +304,13 @@ async function loadWorkspace() {
     }
 
     try {
-      capabilities.value = await pagesApi.getCapabilities(page.value.project_id)
+      capabilities.value = await pagesApi.getCapabilities(String(page.value.project_id))
     } catch {
       capabilities.value = { can_edit: false, can_review: false, can_export: false, can_manage: false }
     }
 
     // 加载同项目页面列表（不阻塞主流程）
-    loadPageList(page.value.project_id)
+    loadPageList(String(page.value.project_id))
 
     // 加载图片
     try {
@@ -325,13 +325,13 @@ async function loadWorkspace() {
           const blob = await imgRes.blob()
           imageUrl.value = URL.createObjectURL(blob)
         } else {
-          imageUrl.value = `https://placehold.co/${page.value.width}x${page.value.height}/f8f8f8/333?text=${encodeURIComponent(page.value.filename)}`
+          imageUrl.value = `https://placehold.co/${page.value.width}x${page.value.height}/f8f8f8/333?text=${encodeURIComponent(page.value.filename || page.value.page_id)}`
         }
       } else {
-        imageUrl.value = `https://placehold.co/${page.value.width}x${page.value.height}/f8f8f8/333?text=${encodeURIComponent(page.value.filename)}`
+        imageUrl.value = `https://placehold.co/${page.value.width}x${page.value.height}/f8f8f8/333?text=${encodeURIComponent(page.value.filename || page.value.page_id)}`
       }
     } catch {
-      imageUrl.value = `https://placehold.co/${page.value.width}x${page.value.height}/f8f8f8/333?text=${encodeURIComponent(page.value.filename)}`
+      imageUrl.value = `https://placehold.co/${page.value.width}x${page.value.height}/f8f8f8/333?text=${encodeURIComponent(page.value.filename || page.value.page_id)}`
     }
 
     // 加载标注
@@ -417,7 +417,7 @@ onMounted(() => { loadWorkspace() })
           <button
             class="w-8 h-8 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-muted hover:text-text transition-colors"
             :class="{ 'opacity-40 cursor-not-allowed': !hasPrev }" :disabled="!hasPrev"
-            :aria-label="t('workspace.prevPage')" :title="`${t('workspace.prevPage')} ([)`" @click="goToPrevPage">
+            :aria-label="t('workspace.prevPage')" :title="`${t('workspace.prevPage')} (A)`" @click="goToPrevPage">
             <ChevronLeft class="w-4 h-4" />
           </button>
           <span class="text-caption font-mono text-text-secondary min-w-[4rem] text-center">
@@ -426,7 +426,7 @@ onMounted(() => { loadWorkspace() })
           <button
             class="w-8 h-8 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-muted hover:text-text transition-colors"
             :class="{ 'opacity-40 cursor-not-allowed': !hasNext }" :disabled="!hasNext"
-            :aria-label="t('workspace.nextPage')" :title="`${t('workspace.nextPage')} (])`" @click="goToNextPage">
+            :aria-label="t('workspace.nextPage')" :title="`${t('workspace.nextPage')} (D)`" @click="goToNextPage">
             <ChevronRight class="w-4 h-4" />
           </button>
         </div>
@@ -526,7 +526,7 @@ onMounted(() => { loadWorkspace() })
               p.page_id === pageId
                 ? 'border-primary ring-1 ring-primary/30'
                 : 'border-border-soft hover:border-primary/40',
-            ]" :title="`${p.filename} (${p.width}×${p.height})`" @click="goToPage(p.page_id)">
+            ]" :title="`${p.filename || p.page_id} (${p.width}×${p.height})`" @click="goToPage(p.page_id)">
               <!-- 缩略图 -->
               <div class="w-full h-16 bg-surface-alt flex items-center justify-center overflow-hidden">
                 <img v-if="thumbnailUrls[p.page_id]" :src="thumbnailUrls[p.page_id]"
@@ -535,7 +535,7 @@ onMounted(() => { loadWorkspace() })
               </div>
               <!-- 文件名 -->
               <div class="px-1 py-0.5">
-                <p class="text-micro text-text-secondary truncate">{{ p.filename }}</p>
+                <p class="text-micro text-text-secondary truncate">{{ p.filename || p.page_id }}</p>
               </div>
             </button>
           </div>
@@ -680,7 +680,7 @@ onMounted(() => { loadWorkspace() })
               </div>
               <div class="flex items-center gap-1.5">
                 <kbd
-                  class="font-mono text-text-tertiary bg-surface-alt border border-border rounded px-1 py-0.5">[/]</kbd>
+                  class="font-mono text-text-tertiary bg-surface-alt border border-border rounded px-1 py-0.5">A / D</kbd>
                 <span class="text-text-secondary">{{ t('workspace.prevPage') }}/{{ t('workspace.nextPage') }}</span>
               </div>
             </div>

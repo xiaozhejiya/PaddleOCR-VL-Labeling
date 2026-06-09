@@ -41,7 +41,7 @@ async function loadBreadcrumb() {
   if (!pageId) return
   try {
     const page = await pagesApi.get(pageId)
-    pageFilename.value = page.filename
+    pageFilename.value = page.filename || page.page_id
     if (page.project_id) {
       projectId.value = String(page.project_id)
       try {

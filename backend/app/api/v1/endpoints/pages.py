@@ -50,7 +50,7 @@ def read_page(
     page_id: str,
     db: Session = Depends(get_db_session),
     current_user: User = Depends(get_current_user),
-) -> PageReadResponse | JSONResponse:
+):
     try:
         page = get_page_detail(db=db, page_public_id=page_id)
     except PageNotFoundError as exc:
@@ -72,12 +72,12 @@ def read_page(
 # ── 页面图片 ──
 
 
-@router.get("/pages/{page_id}/image", summary="获取页面图片访问 URL")
+@router.get("/pages/{page_id}/image", summary="获取页面图片访问 URL", response_model=None)
 def get_page_image_url(
     page_id: str,
     db: Session = Depends(get_db_session),
     current_user: User = Depends(get_current_user),
-) -> dict | JSONResponse:
+):
     try:
         page_data = get_page_detail(db=db, page_public_id=page_id)
     except PageNotFoundError as exc:
@@ -99,12 +99,12 @@ def get_page_image_url(
     }
 
 
-@router.get("/pages/{page_id}/image/raw", summary="获取页面图片文件")
+@router.get("/pages/{page_id}/image/raw", summary="获取页面图片文件", response_model=None)
 def get_page_image_raw(
     page_id: str,
     db: Session = Depends(get_db_session),
     current_user: User = Depends(get_current_user),
-) -> FileResponse | JSONResponse:
+):
     page = db.scalar(select(Page).where(Page.public_id == page_id))
     if not page:
         return _error_response(
@@ -155,7 +155,7 @@ def read_latest_annotation_revision(
     page_id: str,
     db: Session = Depends(get_db_session),
     current_user: User = Depends(get_current_user),
-) -> AnnotationRevisionResponse | JSONResponse:
+):
     try:
         page = get_page_detail(db=db, page_public_id=page_id)
     except PageNotFoundError as exc:
@@ -211,7 +211,7 @@ def create_page_annotation_revision(
     ),
     db: Session = Depends(get_db_session),
     current_user: User = Depends(get_current_user),
-) -> AnnotationRevisionResponse | JSONResponse:
+):
     try:
         page = get_page_detail(db=db, page_public_id=page_id)
     except PageNotFoundError as exc:
@@ -283,12 +283,12 @@ def create_page_annotation_revision(
 # ── QC ──
 
 
-@router.get("/pages/{page_id}/qc", summary="获取页面 QC 问题列表")
+@router.get("/pages/{page_id}/qc", summary="获取页面 QC 问题列表", response_model=None)
 def list_page_qc(
     page_id: str,
     db: Session = Depends(get_db_session),
     current_user: User = Depends(get_current_user),
-) -> dict | JSONResponse:
+):
     page = db.scalar(select(Page).where(Page.public_id == page_id))
     if not page:
         return _error_response(
