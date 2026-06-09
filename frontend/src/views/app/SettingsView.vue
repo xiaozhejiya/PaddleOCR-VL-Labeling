@@ -1,14 +1,17 @@
 <script setup lang="ts">
 /**
  * 系统设置页
- * 使用基础组件，统一表单样式
- * 规范：frontend_component_library_spec.md §5.3
  */
 import { useI18n } from 'vue-i18n'
-import BaseInput from '@/components/base/BaseInput.vue'
+import { NInput, NFormItem, NSelect } from 'naive-ui'
 import { Globe, User, Bell, Shield } from 'lucide-vue-next'
 
 const { t, locale } = useI18n()
+
+const languageOptions = [
+  { label: '简体中文', value: 'zh-CN' },
+  { label: 'English', value: 'en-US' },
+]
 
 function changeLocale(lang: string) {
   locale.value = lang
@@ -34,17 +37,13 @@ function changeLocale(lang: string) {
             <h2 class="text-subheading text-text">{{ t('settings.language') }}</h2>
           </div>
           <div class="max-w-xs">
-            <label class="block text-body-medium text-text mb-1.5">
-              {{ t('settings.language') }}
-            </label>
-            <select
-              :value="locale"
-              @change="changeLocale(($event.target as HTMLSelectElement).value)"
-              class="w-full h-9 px-3 text-body bg-surface border border-border-strong rounded-md text-text focus:outline-none focus:ring-2 focus:ring-focus focus:border-primary transition-colors"
-            >
-              <option value="zh-CN">简体中文</option>
-              <option value="en-US">English</option>
-            </select>
+            <NFormItem :label="t('settings.language')">
+              <NSelect
+                :value="locale"
+                :options="languageOptions"
+                @update:value="changeLocale"
+              />
+            </NFormItem>
           </div>
         </section>
 
@@ -55,8 +54,12 @@ function changeLocale(lang: string) {
             <h2 class="text-subheading text-text">{{ t('settings.personalInfo') }}</h2>
           </div>
           <div class="max-w-md space-y-4">
-            <BaseInput :label="t('auth.username')" model-value="" :placeholder="t('auth.username')" readonly />
-            <BaseInput :label="t('auth.email')" model-value="" :placeholder="t('auth.email')" readonly />
+            <NFormItem :label="t('auth.username')">
+              <NInput :value="''" :placeholder="t('auth.username')" readonly />
+            </NFormItem>
+            <NFormItem :label="t('auth.email')">
+              <NInput :value="''" :placeholder="t('auth.email')" readonly />
+            </NFormItem>
           </div>
         </section>
 

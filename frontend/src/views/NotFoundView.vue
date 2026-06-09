@@ -3,7 +3,7 @@
  * 404 页面不存在
  */
 import { useI18n } from 'vue-i18n'
-import BaseButton from '@/components/base/BaseButton.vue'
+import { NButton } from 'naive-ui'
 import { FileQuestion } from 'lucide-vue-next'
 
 const { t } = useI18n()
@@ -16,7 +16,7 @@ const { t } = useI18n()
       <h1 class="text-display text-text mb-2">404</h1>
       <p class="text-body text-text-secondary mb-6">{{ t('errors.notFound') }}</p>
       <router-link :to="{ name: 'projects.index' }">
-        <BaseButton variant="primary">{{ t('common.back') }}</BaseButton>
+        <NButton type="primary">{{ t('common.back') }}</NButton>
       </router-link>
     </div>
   </div>

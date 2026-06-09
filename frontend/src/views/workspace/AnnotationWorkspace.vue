@@ -2,7 +2,7 @@
 /**
  * 标注工作台页面
  * 通过 AnnotationWorkspaceLayout 提供布局
- * 负责加载 page 元数据、图片访问入口、latest revision、label registry、QC 列表和 capabilities
+ * 负责加载 page 元数据、图片、latest revision、label registry
  *
  * 参考：doc/开发文档/前端/frontend_routing_spec.md 第 14 章
  */
@@ -12,9 +12,11 @@ import { useI18n } from 'vue-i18n'
 import { pagesApi, type Page, type Capabilities } from '@/api/pages'
 import { annotationsApi, type AnnotationRevision } from '@/api/annotations'
 import { qcApi, type QcIssue } from '@/api/qc'
+import { annotationsApi as saveApi } from '@/api/annotations'
 import { ApiClientError } from '@/api/client'
-import BaseButton from '@/components/base/BaseButton.vue'
-import BaseTabs from '@/components/base/BaseTabs.vue'
+import { NButton } from 'naive-ui'
+import AnnotationCanvas from '@/components/annotation/AnnotationCanvas.vue'
+import type { AnnotationObject } from '@/composables/useAnnotationStore'
 import {
   MousePointer2,
   SquareDashedMousePointer,
@@ -27,10 +29,9 @@ import {
   Undo2,
   Redo2,
   Trash2,
-  ChevronLeft,
-  ChevronRight,
-  Eye,
   Fullscreen,
+  Save,
+  Loader2,
 } from 'lucide-vue-next'
 
 const { t } = useI18n()
@@ -43,12 +44,14 @@ const revisionId = computed(() => route.query.revision_id as string | undefined)
 const loading = ref(true)
 const error = ref('')
 const errorCode = ref<number | undefined>()
+const saving = ref(false)
 
 // ── 数据 ──
 const page = ref<Page | null>(null)
 const capabilities = ref<Capabilities | null>(null)
 const revision = ref<AnnotationRevision | null>(null)
 const qcIssues = ref<QcIssue[]>([])
+const imageUrl = ref<string | null>(null)
 
 const isReadonly = computed(() => {
   if (revisionId.value) return true
@@ -56,11 +59,15 @@ const isReadonly = computed(() => {
   return false
 })
 
-const updateSaveStatus = inject<((status: 'saved' | 'dirty' | 'readonly') => void) | undefined>('updateSaveStatus')
+const updateSaveStatus = inject<((status: string) => void) | undefined>('updateSaveStatus')
 const updatePageTitle = inject<((title: string) => void) | undefined>('updatePageTitle')
 
-function syncWorkspaceMeta() {
-  updateSaveStatus?.(isReadonly.value ? 'readonly' : 'saved')
+function syncWorkspaceMeta(status?: string) {
+  if (status) {
+    updateSaveStatus?.(status)
+  } else {
+    updateSaveStatus?.(isReadonly.value ? 'readonly' : 'saved')
+  }
   if (page.value) {
     updatePageTitle?.(page.value.filename)
   } else {
@@ -69,43 +76,149 @@ function syncWorkspaceMeta() {
 }
 
 // ── 工具栏状态 ──
-const activeTool = ref('select')
+const activeTool = ref<'select' | 'rectangle' | 'readingOrder' | 'pan'>('select')
 const zoomLevel = ref(100)
+const canvasRef = ref<InstanceType<typeof AnnotationCanvas> | null>(null)
 
 const tools = [
   { key: 'select', icon: MousePointer2, label: 'annotation.tools.select', shortcut: 'R' },
   { key: 'rectangle', icon: SquareDashedMousePointer, label: 'annotation.tools.rectangle', shortcut: 'W' },
-  { key: 'readingOrder', icon: BookOpen, label: 'annotation.tools.readingOrder', shortcut: 'R' },
+  { key: 'readingOrder', icon: BookOpen, label: 'annotation.tools.readingOrder', shortcut: 'O' },
   { key: 'pan', icon: Hand, label: 'annotation.tools.pan', shortcut: 'Space' },
 ]
 
 // ── 右侧面板 ──
-const rightPanelTab = ref('labels')
-const rightPanelTabs = computed(() => [
-  { key: 'labels', label: t('annotation.labels.title') },
-  { key: 'objects', label: t('annotation.objects.title'), count: 12 },
-  { key: 'qc', label: t('annotation.qc.title'), count: 3 },
-])
+const objectCount = ref(0)
+const qcCount = ref(0)
 
-// ── 标签数据（mock） ──
-const labels = computed(() => [
-  { key: 'question', color: '#5e6ad2', count: 124, visible: true },
-  { key: 'answerArea', color: '#24a148', count: 356, visible: true },
-  { key: 'optionArea', color: '#0f62fe', count: 89, visible: true },
-  { key: 'imageArea', color: '#da1e28', count: 45, visible: true },
-  { key: 'formula', color: '#dd5b00', count: 23, visible: true },
-  { key: 'table', color: '#0f62fe', count: 12, visible: true },
-  { key: 'other', color: '#8c8c8c', count: 8, visible: true },
-])
+// ── 标签数据 ──
+const labels = [
+  { key: 'question_block', i18nKey: 'question', color: '#5e6ad2' },
+  { key: 'answer_area', i18nKey: 'answerArea', color: '#24a148' },
+  { key: 'option_block', i18nKey: 'optionArea', color: '#0f62fe' },
+  { key: 'option_image', i18nKey: 'imageArea', color: '#da1e28' },
+  { key: 'formula', i18nKey: 'formula', color: '#dd5b00' },
+  { key: 'table', i18nKey: 'table', color: '#0f62fe' },
+  { key: 'noise_or_erasure', i18nKey: 'other', color: '#8c8c8c' },
+]
+const activeLabel = ref('question_block')
 
-// ── 页面缩略图（mock） ──
-const currentPageIndex = ref(11)
-const totalPages = 15
-const pageThumbnails = Array.from({ length: totalPages }, (_, i) => ({
-  index: i,
-  number: i + 1,
-  hasAnnotation: [3, 7, 11].includes(i),
-}))
+// ── 选中对象属性 ──
+const selectedObject = ref<AnnotationObject | null>(null)
+
+function onObjectSelected(id: string | null) {
+  if (!id) {
+    selectedObject.value = null
+    return
+  }
+  selectedObject.value = canvasRef.value?.store.objects.value.find(o => o.id === id) || null
+}
+
+function onObjectsChanged() {
+  if (!canvasRef.value) return
+  const store = canvasRef.value.store
+  objectCount.value = store.objects.value.length
+  selectedObject.value = store.selectedObject.value
+  syncWorkspaceMeta('dirty')
+}
+
+// ── 属性编辑 ──
+function onLabelChange(e: Event) {
+  const label = (e.target as HTMLSelectElement).value
+  if (selectedObject.value && canvasRef.value) {
+    const color = labels.find(l => l.key === label)?.color || '#5e6ad2'
+    canvasRef.value.store.updateObject(selectedObject.value.id, { label, color })
+    onObjectsChanged()
+  }
+}
+
+function onReadOrderChange(e: Event) {
+  const order = parseInt((e.target as HTMLInputElement).value, 10)
+  if (selectedObject.value && canvasRef.value && !isNaN(order)) {
+    canvasRef.value.store.setReadOrder(selectedObject.value.id, order)
+    onObjectsChanged()
+  }
+}
+
+// ── 保存 ──
+async function saveAnnotation() {
+  if (!canvasRef.value || !page.value || saving.value) return
+  saving.value = true
+  syncWorkspaceMeta('saving')
+  try {
+    const draft = canvasRef.value.store.toDraft(page.value.page_id)
+    const result = await saveApi.save(page.value.page_id, draft)
+    canvasRef.value.store.baseRevisionId.value = result.id
+    canvasRef.value.store.revisionNo.value = result.revision_no
+    syncWorkspaceMeta('saved')
+  } catch (e) {
+    if (e instanceof ApiClientError && e.status === 409) {
+      syncWorkspaceMeta('conflict')
+    } else {
+      syncWorkspaceMeta('autosave_failed')
+    }
+  } finally {
+    saving.value = false
+  }
+}
+
+// ── 缩放控制 ──
+function onZoomIn() {
+  canvasRef.value?.transform.zoom(0.25)
+  zoomLevel.value = canvasRef.value?.transform.zoomPercent.value || 100
+}
+
+function onZoomOut() {
+  canvasRef.value?.transform.zoom(-0.25)
+  zoomLevel.value = canvasRef.value?.transform.zoomPercent.value || 100
+}
+
+function onFitWidth() {
+  canvasRef.value?.transform.fitToWidth()
+  zoomLevel.value = canvasRef.value?.transform.zoomPercent.value || 100
+}
+
+function onFitPage() {
+  canvasRef.value?.transform.fitToContainer()
+  zoomLevel.value = canvasRef.value?.transform.zoomPercent.value || 100
+}
+
+function onZoomLevelUpdate(val: number) {
+  zoomLevel.value = val
+}
+
+// ── 撤销/重做/删除 ──
+function onUndo() {
+  canvasRef.value?.store.undo()
+  onObjectsChanged()
+}
+
+function onRedo() {
+  canvasRef.value?.store.redo()
+  onObjectsChanged()
+}
+
+function onDelete() {
+  canvasRef.value?.store.deleteSelected()
+  onObjectsChanged()
+}
+
+// ── 键盘快捷键 ──
+function onKeyDown(e: KeyboardEvent) {
+  // 快捷键切换工具
+  if (!e.ctrlKey && !e.metaKey) {
+    if (e.key === 'r' || e.key === 'R') { activeTool.value = 'select'; e.preventDefault() }
+    if (e.key === 'w' || e.key === 'W') { activeTool.value = 'rectangle'; e.preventDefault() }
+    if (e.key === 'o' || e.key === 'O') { activeTool.value = 'readingOrder'; e.preventDefault() }
+  }
+  // Ctrl+S 保存
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    e.preventDefault()
+    saveAnnotation()
+  }
+}
+
+onMounted(() => { window.addEventListener('keydown', onKeyDown) })
 
 // ── 加载数据 ──
 async function loadWorkspace() {
@@ -140,6 +253,16 @@ async function loadWorkspace() {
       capabilities.value = { can_edit: false, can_review: false, can_export: false, can_manage: false }
     }
 
+    // 加载图片 URL（mock 模式下用 placeholder）
+    try {
+      const imgRes = await pagesApi.getImageUrl(page.value.page_id)
+      imageUrl.value = imgRes.url
+    } catch {
+      // mock 模式没有真实图片，用 placeholder
+      imageUrl.value = `https://placehold.co/${page.value.width}x${page.value.height}/f8f8f8/333?text=${encodeURIComponent(page.value.filename)}`
+    }
+
+    // 加载标注
     try {
       if (revisionId.value) {
         const revisions = await annotationsApi.listRevisions(pageId.value)
@@ -151,10 +274,18 @@ async function loadWorkspace() {
       if (e instanceof ApiClientError && e.status === 404) revision.value = null
     }
 
+    // 加载 QC
     try {
       const qcResponse = await qcApi.listByPage(pageId.value)
       qcIssues.value = qcResponse.items
+      qcCount.value = qcResponse.items.length
     } catch { /* QC 加载失败不阻止页面显示 */ }
+
+    // 将 revision 数据加载到 store
+    if (canvasRef.value) {
+      canvasRef.value.store.loadFromRevision(revision.value)
+      objectCount.value = canvasRef.value.store.objects.value.length
+    }
 
     syncWorkspaceMeta()
   } finally {
@@ -182,9 +313,9 @@ onMounted(() => { loadWorkspace() })
       <div class="text-center">
         <p class="text-heading text-text mb-2">{{ error }}</p>
         <p v-if="errorCode" class="text-caption text-text-muted mb-4">Error {{ errorCode }}</p>
-        <BaseButton variant="primary" @click="loadWorkspace">
+        <NButton type="primary" @click="loadWorkspace">
           {{ t('common.retry') }}
-        </BaseButton>
+        </NButton>
       </div>
     </div>
 
@@ -205,7 +336,7 @@ onMounted(() => { loadWorkspace() })
             ]"
             :aria-label="t(tool.label)"
             :title="`${t(tool.label)} (${tool.shortcut})`"
-            @click="activeTool = tool.key"
+            @click="activeTool = tool.key as any"
           >
             <component :is="tool.icon" class="w-4 h-4" />
           </button>
@@ -219,26 +350,28 @@ onMounted(() => { loadWorkspace() })
           <button
             class="w-8 h-8 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-muted hover:text-text transition-colors"
             :aria-label="t('annotation.tools.zoomOut')"
-            @click="zoomLevel = Math.max(25, zoomLevel - 25)"
+            @click="onZoomOut"
           >
             <ZoomOut class="w-4 h-4" />
           </button>
           <button
             class="w-8 h-8 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-muted hover:text-text transition-colors"
             :aria-label="t('annotation.tools.zoomIn')"
-            @click="zoomLevel = Math.min(400, zoomLevel + 25)"
+            @click="onZoomIn"
           >
             <ZoomIn class="w-4 h-4" />
           </button>
           <button
             class="w-8 h-8 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-muted hover:text-text transition-colors"
             :aria-label="t('annotation.tools.fitWidth')"
+            @click="onFitWidth"
           >
             <Expand class="w-4 h-4" />
           </button>
           <button
             class="w-8 h-8 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-muted hover:text-text transition-colors"
             :aria-label="t('annotation.tools.fitPage')"
+            @click="onFitPage"
           >
             <Maximize class="w-4 h-4" />
           </button>
@@ -248,24 +381,43 @@ onMounted(() => { loadWorkspace() })
         <div class="w-px h-5 bg-border mx-1"></div>
 
         <!-- 缩放百分比 -->
-        <button class="h-7 px-2 text-caption font-mono text-text-secondary hover:bg-surface-muted rounded-md transition-colors">
+        <button
+          class="h-7 px-2 text-caption font-mono text-text-secondary hover:bg-surface-muted rounded-md transition-colors"
+          @click="onFitPage"
+        >
           {{ zoomLevel }}%
         </button>
 
         <!-- 右侧操作 -->
         <div class="ml-auto flex items-center gap-1">
+          <!-- 保存 -->
+          <button
+            class="w-8 h-8 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-muted hover:text-text transition-colors"
+            :aria-label="t('common.save')"
+            :title="`${t('common.save')} (Ctrl+S)`"
+            :disabled="saving"
+            @click="saveAnnotation"
+          >
+            <Loader2 v-if="saving" class="w-4 h-4 animate-spin" />
+            <Save v-else class="w-4 h-4" />
+          </button>
+
           <!-- 撤销/重做 -->
           <button
             class="w-8 h-8 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-muted hover:text-text transition-colors"
+            :class="{ 'opacity-40 cursor-not-allowed': !canvasRef?.store.canUndo.value }"
             :aria-label="t('annotation.tools.undo')"
             :title="`${t('annotation.tools.undo')} (Ctrl+Z)`"
+            @click="onUndo"
           >
             <Undo2 class="w-4 h-4" />
           </button>
           <button
             class="w-8 h-8 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-muted hover:text-text transition-colors"
+            :class="{ 'opacity-40 cursor-not-allowed': !canvasRef?.store.canRedo.value }"
             :aria-label="t('annotation.tools.redo')"
             :title="`${t('annotation.tools.redo')} (Ctrl+Y)`"
+            @click="onRedo"
           >
             <Redo2 class="w-4 h-4" />
           </button>
@@ -276,22 +428,13 @@ onMounted(() => { loadWorkspace() })
           <!-- 删除 -->
           <button
             class="w-8 h-8 flex items-center justify-center rounded-md text-text-secondary hover:bg-danger-bg hover:text-danger transition-colors"
+            :class="{ 'opacity-40 cursor-not-allowed': !selectedObject }"
             :aria-label="t('annotation.tools.delete')"
             :title="`${t('annotation.tools.delete')} (Delete)`"
+            @click="onDelete"
           >
             <Trash2 class="w-4 h-4" />
           </button>
-
-          <!-- 分隔线 -->
-          <div class="w-px h-5 bg-border mx-1"></div>
-
-          <!-- 缩放选择 -->
-          <select class="h-7 px-1.5 text-caption bg-surface border border-border rounded-md text-text-secondary focus:outline-none focus:ring-2 focus:ring-focus">
-            <option value="100">100%</option>
-            <option value="75">75%</option>
-            <option value="50">50%</option>
-            <option value="25">25%</option>
-          </select>
 
           <!-- 全屏 -->
           <button
@@ -303,169 +446,122 @@ onMounted(() => { loadWorkspace() })
         </div>
       </div>
 
-      <!-- ═══ 左侧：页面缩略图列表 ═══ -->
+      <!-- ═══ 主工作区 ═══ -->
       <div class="flex flex-1 overflow-hidden">
-        <!-- 左侧面板：页面导航 -->
+        <!-- 左侧面板：标签选择 -->
         <div class="w-32 bg-surface-muted border-r border-border-soft flex flex-col shrink-0">
-          <!-- 页码导航 -->
-          <div class="flex items-center justify-between px-2 py-1.5 border-b border-border-soft">
-            <button class="w-6 h-6 flex items-center justify-center rounded text-text-muted hover:text-text hover:bg-surface transition-colors">
-              <ChevronLeft class="w-3.5 h-3.5" />
-            </button>
-            <span class="text-caption text-text">
-              <span class="font-medium">1</span>
-              <span class="text-text-muted"> / </span>
-              <span>4</span>
-            </span>
-            <button class="w-6 h-6 flex items-center justify-center rounded text-text-muted hover:text-text hover:bg-surface transition-colors">
-              <ChevronRight class="w-3.5 h-3.5" />
-            </button>
+          <div class="p-2 border-b border-border-soft">
+            <span class="text-micro text-text-tertiary uppercase tracking-wider">{{ t('annotation.labels.title') }}</span>
           </div>
-
-          <!-- 缩略图列表 -->
-          <div class="flex-1 overflow-y-auto p-1.5 space-y-1.5">
-            <div
-              v-for="thumb in pageThumbnails.slice(0, 4)"
-              :key="thumb.index"
+          <div class="flex-1 overflow-y-auto p-1.5 space-y-0.5">
+            <button
+              v-for="label in labels"
+              :key="label.key"
               :class="[
-                'rounded-md overflow-hidden cursor-pointer border-2 transition-colors',
-                currentPageIndex === thumb.index ? 'border-primary' : 'border-transparent hover:border-border-strong',
+                'w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-caption transition-colors',
+                activeLabel === label.key
+                  ? 'bg-primary/10 text-primary font-medium'
+                  : 'text-text-secondary hover:bg-surface-muted',
               ]"
+              @click="activeLabel = label.key"
             >
-              <div class="aspect-[3/4] bg-bg-canvas flex items-center justify-center relative">
-                <div class="w-full h-full bg-surface-muted flex items-center justify-center">
-                  <div class="text-micro text-text-muted">{{ thumb.number }}</div>
-                </div>
-                <!-- 标注指示点 -->
-                <div
-                  v-if="thumb.hasAnnotation"
-                  class="absolute bottom-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-primary"
-                ></div>
-              </div>
-            </div>
+              <span class="w-3 h-3 rounded-sm shrink-0" :style="{ backgroundColor: label.color }"></span>
+              <span class="truncate">{{ t(`annotation.labels.${label.i18nKey}`) }}</span>
+            </button>
           </div>
         </div>
 
         <!-- ═══ 中间画布区 ═══ -->
-        <div class="flex-1 bg-bg-canvas relative overflow-hidden flex items-center justify-center">
-          <!-- 画布内容占位 -->
-          <div class="text-center">
-            <div class="w-96 bg-white border border-border-soft rounded-lg shadow-sm p-8 mx-auto">
-              <div class="text-heading text-text-warm mb-4">小学数学三年级期末测试卷</div>
-              <div class="space-y-3 text-body text-text-warm text-left">
-                <div class="text-subheading">一、填空题（每题 2 分，共 20 分）</div>
-                <div>1. 计算 24 × 3 = <span class="inline-block w-16 border-b border-border-strong mx-1"></span>。</div>
-                <div>2. 一个长方形的长是 8 厘米，宽是 6 厘米，它的面积是（  ）平方厘米。</div>
-                <div class="pl-4">3. 在括号里填上合适的单位。</div>
-                <div class="pl-8">(1) 一支铅笔长约 18 <span class="inline-block w-12 border-b border-border-strong mx-1"></span>。</div>
-                <div class="pl-8">(2) 一张课桌高约 7 <span class="inline-block w-12 border-b border-border-strong mx-1"></span>。</div>
-                <div class="text-subheading mt-4">二、选择题（每题 2 分，共 10 分）</div>
-                <div>1. 下面哪个数比 400 大？</div>
-                <div class="pl-4 flex gap-4">
-                  <span>A. 398</span>
-                  <span>B. 421</span>
-                  <span>C. 305</span>
-                </div>
-              </div>
-            </div>
+        <AnnotationCanvas
+          ref="canvasRef"
+          :image-url="imageUrl"
+          :active-tool="activeTool"
+          :active-label="activeLabel"
+          class="flex-1"
+          @update:zoom-level="onZoomLevelUpdate"
+          @object-selected="onObjectSelected"
+          @objects-changed="onObjectsChanged"
+        />
 
-            <!-- Mock overlay boxes -->
-            <div class="absolute top-1/4 left-1/3 w-48 border-2 border-overlay-manual rounded-sm pointer-events-none">
-              <span class="absolute -top-5 left-0 text-micro bg-overlay-manual text-white px-1 py-0.5 rounded-sm">{{ t('annotation.labels.question') }}</span>
-            </div>
-            <div class="absolute top-[45%] left-1/4 w-64 border-2 border-overlay-manual rounded-sm pointer-events-none">
-              <span class="absolute -top-5 left-0 text-micro bg-success text-white px-1 py-0.5 rounded-sm">{{ t('annotation.labels.answerArea') }}</span>
-            </div>
-            <div class="absolute top-[65%] left-1/4 w-56 border-2 border-overlay-candidate rounded-sm pointer-events-none">
-              <span class="absolute -top-5 left-0 text-micro bg-info text-white px-1 py-0.5 rounded-sm">{{ t('annotation.labels.optionArea') }}</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- ═══ 右侧：标签管理/对象列表/QC ═══ -->
+        <!-- ═══ 右侧：属性编辑 ═══ -->
         <div class="w-64 bg-surface border-l border-border flex flex-col shrink-0">
-          <!-- Tab 切换 -->
-          <BaseTabs
-            :tabs="rightPanelTabs"
-            :active-key="rightPanelTab"
-            class="shrink-0"
-            @update:active-key="rightPanelTab = $event"
-          />
+          <!-- 属性编辑 -->
+          <div class="p-3 border-b border-border">
+            <div class="text-body-medium text-text mb-3">{{ t('annotation.properties.title') }}</div>
 
-          <!-- 标签管理 -->
-          <div v-if="rightPanelTab === 'labels'" class="flex-1 overflow-y-auto">
-            <div class="p-3">
-              <button class="w-full h-8 text-caption text-primary hover:bg-primary/5 rounded-md flex items-center justify-center gap-1 transition-colors mb-3">
-                {{ t('annotation.labels.newLabel') }}
-              </button>
-
-              <div class="space-y-1">
-                <div
-                  v-for="label in labels"
-                  :key="label.key"
-                  class="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-surface-muted transition-colors cursor-pointer"
+            <template v-if="selectedObject">
+              <!-- 标签选择 -->
+              <div class="mb-2">
+                <label class="text-micro text-text-tertiary block mb-1">{{ t('annotation.properties.label') }}</label>
+                <select
+                  :value="selectedObject.label"
+                  class="w-full h-7 px-2 text-caption bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-2 focus:ring-focus"
+                  @change="onLabelChange"
                 >
-                  <input type="checkbox" :checked="label.visible" class="w-3.5 h-3.5 rounded border-border-strong text-primary focus:ring-focus" />
-                  <span class="w-3 h-3 rounded-sm shrink-0" :style="{ backgroundColor: label.color }"></span>
-                  <span class="flex-1 text-body text-text truncate">{{ t(`annotation.labels.${label.key}`) }}</span>
-                  <span class="text-caption text-text-muted">{{ label.count }}</span>
-                  <button class="p-0.5 rounded text-text-muted hover:text-text transition-colors" aria-label="Show">
-                    <Eye class="w-3.5 h-3.5" />
-                  </button>
+                  <option v-for="label in labels" :key="label.key" :value="label.key">
+                    {{ t(`annotation.labels.${label.i18nKey}`) }}
+                  </option>
+                </select>
+              </div>
+
+              <!-- 阅读顺序 -->
+              <div class="mb-2">
+                <label class="text-micro text-text-tertiary block mb-1">Read Order</label>
+                <input
+                  type="number"
+                  :value="selectedObject.read_order"
+                  min="0"
+                  class="w-full h-7 px-2 text-caption bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-2 focus:ring-focus"
+                  @change="onReadOrderChange"
+                />
+              </div>
+
+              <!-- 坐标 -->
+              <div class="mb-2">
+                <label class="text-micro text-text-tertiary block mb-1">{{ t('annotation.properties.coordinates') }}</label>
+                <div class="grid grid-cols-4 gap-1">
+                  <input
+                    v-for="(val, idx) in selectedObject.bbox_xyxy"
+                    :key="idx"
+                    type="text"
+                    :value="Math.round(val)"
+                    class="h-7 px-1.5 text-caption font-mono bg-surface border border-border rounded-md text-text text-center"
+                    readonly
+                  />
                 </div>
               </div>
-            </div>
+
+              <!-- ID -->
+              <div class="flex justify-between text-micro text-text-tertiary">
+                <span>{{ t('annotation.properties.id') }}: <span class="font-mono">{{ selectedObject.id.slice(0, 12) }}</span></span>
+              </div>
+            </template>
+
+            <template v-else>
+              <p class="text-caption text-text-muted">{{ t('common.noData') }}</p>
+            </template>
           </div>
 
           <!-- 对象列表 -->
-          <div v-else-if="rightPanelTab === 'objects'" class="flex-1 overflow-y-auto">
-            <div class="p-3 text-caption text-text-muted">
-              {{ t('annotation.objects.count', { count: 12 }) }}
+          <div class="flex-1 overflow-y-auto p-3">
+            <div class="text-body-medium text-text mb-2">
+              {{ t('annotation.objects.count', { count: objectCount }) }}
             </div>
-          </div>
-
-          <!-- QC 问题 -->
-          <div v-else-if="rightPanelTab === 'qc'" class="flex-1 overflow-y-auto">
-            <div class="p-3 text-caption text-text-muted">
-              {{ t('annotation.qc.count', { count: 3 }) }}
-            </div>
-          </div>
-
-          <!-- 属性编辑 -->
-          <div class="border-t border-border p-3 shrink-0">
-            <div class="text-body-medium text-text mb-3">{{ t('annotation.properties.title') }}</div>
-            <div class="space-y-2">
-              <div>
-                <label class="text-micro text-text-tertiary block mb-1">{{ t('annotation.properties.label') }}</label>
-                <select class="w-full h-7 px-2 text-caption bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-2 focus:ring-focus">
-                  <option>{{ t('annotation.labels.question') }}</option>
-                  <option>{{ t('annotation.labels.answerArea') }}</option>
-                  <option>{{ t('annotation.labels.optionArea') }}</option>
-                </select>
-              </div>
-              <div>
-                <label class="text-micro text-text-tertiary block mb-1">{{ t('annotation.properties.textContent') }}</label>
-                <input
-                  type="text"
-                  value="计算 24 × 3 = ____。"
-                  class="w-full h-7 px-2 text-caption bg-surface border border-border rounded-md text-text focus:outline-none focus:ring-2 focus:ring-focus"
-                  readonly
-                />
-              </div>
-              <div>
-                <label class="text-micro text-text-tertiary block mb-1">{{ t('annotation.properties.coordinates') }}</label>
-                <div class="grid grid-cols-4 gap-1">
-                  <input type="text" value="120" class="h-7 px-1.5 text-caption font-mono bg-surface border border-border rounded-md text-text text-center focus:outline-none focus:ring-2 focus:ring-focus" readonly />
-                  <input type="text" value="180" class="h-7 px-1.5 text-caption font-mono bg-surface border border-border rounded-md text-text text-center focus:outline-none focus:ring-2 focus:ring-focus" readonly />
-                  <input type="text" value="580" class="h-7 px-1.5 text-caption font-mono bg-surface border border-border rounded-md text-text text-center focus:outline-none focus:ring-2 focus:ring-focus" readonly />
-                  <input type="text" value="240" class="h-7 px-1.5 text-caption font-mono bg-surface border border-border rounded-md text-text text-center focus:outline-none focus:ring-2 focus:ring-focus" readonly />
-                </div>
-              </div>
-              <div class="flex justify-between text-micro text-text-tertiary">
-                <span>{{ t('annotation.properties.id') }}: <span class="font-mono">obj_00123</span></span>
-              </div>
-              <div class="text-micro text-text-tertiary">
-                {{ t('annotation.properties.createdAt') }}: 2024-05-27 10:15:23
+            <div class="space-y-1">
+              <div
+                v-for="obj in (canvasRef?.store.objects.value || [])"
+                :key="obj.id"
+                :class="[
+                  'flex items-center gap-2 px-2 py-1.5 rounded-md text-caption cursor-pointer transition-colors',
+                  selectedObject?.id === obj.id
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-text-secondary hover:bg-surface-muted',
+                ]"
+                @click="canvasRef?.store.select(obj.id); onObjectSelected(obj.id)"
+              >
+                <span class="w-2.5 h-2.5 rounded-sm shrink-0" :style="{ backgroundColor: obj.color }"></span>
+                <span class="flex-1 truncate">{{ obj.label }}</span>
+                <span class="text-micro text-text-muted">#{{ obj.read_order }}</span>
               </div>
             </div>
           </div>
@@ -479,7 +575,7 @@ onMounted(() => { loadWorkspace() })
                 <span class="text-text-secondary">{{ t('annotation.shortcuts.rectangleTool') }}</span>
               </div>
               <div class="flex items-center gap-1.5">
-                <kbd class="font-mono text-text-tertiary bg-surface-alt border border-border rounded px-1 py-0.5">Ctrl + Z</kbd>
+                <kbd class="font-mono text-text-tertiary bg-surface-alt border border-border rounded px-1 py-0.5">Ctrl+Z</kbd>
                 <span class="text-text-secondary">{{ t('annotation.shortcuts.undo') }}</span>
               </div>
               <div class="flex items-center gap-1.5">
@@ -487,11 +583,11 @@ onMounted(() => { loadWorkspace() })
                 <span class="text-text-secondary">{{ t('annotation.shortcuts.selectTool') }}</span>
               </div>
               <div class="flex items-center gap-1.5">
-                <kbd class="font-mono text-text-tertiary bg-surface-alt border border-border rounded px-1 py-0.5">Ctrl + Y</kbd>
+                <kbd class="font-mono text-text-tertiary bg-surface-alt border border-border rounded px-1 py-0.5">Ctrl+Y</kbd>
                 <span class="text-text-secondary">{{ t('annotation.shortcuts.redo') }}</span>
               </div>
               <div class="flex items-center gap-1.5">
-                <kbd class="font-mono text-text-tertiary bg-surface-alt border border-border rounded px-1 py-0.5">R</kbd>
+                <kbd class="font-mono text-text-tertiary bg-surface-alt border border-border rounded px-1 py-0.5">O</kbd>
                 <span class="text-text-secondary">{{ t('annotation.shortcuts.readingOrderTool') }}</span>
               </div>
               <div class="flex items-center gap-1.5">
@@ -503,44 +599,12 @@ onMounted(() => { loadWorkspace() })
                 <span class="text-text-secondary">{{ t('annotation.shortcuts.panCanvas') }}</span>
               </div>
               <div class="flex items-center gap-1.5">
-                <kbd class="font-mono text-text-tertiary bg-surface-alt border border-border rounded px-1 py-0.5">Ctrl + S</kbd>
+                <kbd class="font-mono text-text-tertiary bg-surface-alt border border-border rounded px-1 py-0.5">Ctrl+S</kbd>
                 <span class="text-text-secondary">{{ t('annotation.shortcuts.save') }}</span>
               </div>
             </div>
           </div>
         </div>
-      </div>
-
-      <!-- ═══ 底部：页面缩略图条 ═══ -->
-      <div class="h-24 bg-surface border-t border-border shrink-0 flex items-center px-3 gap-2 z-sticky">
-        <button class="flex items-center gap-1 text-caption text-text-secondary hover:text-text px-2 py-1 rounded-md hover:bg-surface-muted transition-colors shrink-0">
-          <ChevronLeft class="w-3.5 h-3.5" />
-          {{ t('annotation.pages.prevPage') }}
-        </button>
-
-        <div class="flex-1 flex items-center gap-1.5 overflow-x-auto">
-          <div
-            v-for="thumb in pageThumbnails"
-            :key="thumb.index"
-            :class="[
-              'shrink-0 w-14 rounded-md overflow-hidden cursor-pointer border-2 transition-colors',
-              currentPageIndex === thumb.index ? 'border-primary' : 'border-transparent hover:border-border-strong',
-            ]"
-          >
-            <div class="aspect-[3/4] bg-bg-canvas flex items-center justify-center relative">
-              <div class="text-micro text-text-muted">{{ thumb.number }}</div>
-              <div
-                v-if="thumb.hasAnnotation"
-                class="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-primary"
-              ></div>
-            </div>
-          </div>
-        </div>
-
-        <button class="flex items-center gap-1 text-caption text-text-secondary hover:text-text px-2 py-1 rounded-md hover:bg-surface-muted transition-colors shrink-0">
-          {{ t('annotation.pages.nextPage') }}
-          <ChevronRight class="w-3.5 h-3.5" />
-        </button>
       </div>
     </template>
   </div>

@@ -1,16 +1,13 @@
 <script setup lang="ts">
 /**
  * 项目列表页
- * 接入项目列表 API，支持 loading / error / empty 状态
- * 规范：frontend_component_library_spec.md §9
  */
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { projectsApi, type Project } from '@/api/projects'
 import { ApiClientError } from '@/api/client'
-import BaseButton from '@/components/base/BaseButton.vue'
-import BaseEmptyState from '@/components/base/BaseEmptyState.vue'
+import { NButton, NEmpty, NSpin } from 'naive-ui'
 import { FolderKanban, Plus } from 'lucide-vue-next'
 
 const { t } = useI18n()
@@ -28,7 +25,6 @@ async function loadProjects() {
     projects.value = response.items
   } catch (e) {
     if (e instanceof ApiClientError) {
-      // 404/501 视为空列表（后端未实现该接口）
       if (e.status === 404 || e.status === 501) {
         projects.value = []
       } else if (e.status === 0) {
@@ -57,37 +53,32 @@ function goToProject(projectId: string) {
       <!-- 页面头部 -->
       <div class="flex items-center justify-between mb-6">
         <h1 class="text-title text-text">{{ t('routes.projects.index') }}</h1>
-        <BaseButton variant="primary" :left-icon="Plus">
+        <NButton type="primary">
+          <template #icon><Plus /></template>
           {{ t('project.create') }}
-        </BaseButton>
+        </NButton>
       </div>
 
       <!-- Loading -->
-      <div v-if="loading" class="space-y-3">
-        <div v-for="i in 3" :key="i" class="h-24 bg-surface-alt rounded-lg animate-pulse"></div>
+      <div v-if="loading" class="flex justify-center py-16">
+        <NSpin size="large" />
       </div>
 
       <!-- Error -->
       <div v-else-if="error" class="text-center py-16">
         <p class="text-body text-danger mb-4">{{ error }}</p>
-        <BaseButton variant="secondary" size="sm" @click="loadProjects">
-          {{ t('common.retry') }}
-        </BaseButton>
+        <NButton @click="loadProjects">{{ t('common.retry') }}</NButton>
       </div>
 
       <!-- Empty -->
-      <BaseEmptyState
-        v-else-if="projects.length === 0"
-        :icon="FolderKanban"
-        :title="t('common.noData')"
-        :description="t('project.create')"
-      >
-        <template #action>
-          <BaseButton variant="primary" :left-icon="Plus">
+      <NEmpty v-else-if="projects.length === 0" :description="t('common.noData')" class="py-16">
+        <template #extra>
+          <NButton type="primary">
+            <template #icon><Plus /></template>
             {{ t('project.create') }}
-          </BaseButton>
+          </NButton>
         </template>
-      </BaseEmptyState>
+      </NEmpty>
 
       <!-- 项目列表 -->
       <div v-else class="space-y-2">
@@ -109,7 +100,6 @@ function goToProject(projectId: string) {
             </p>
           </div>
           <div class="text-caption text-text-muted shrink-0">
-            <!-- Mock status badge -->
             <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm bg-success-bg text-success text-micro font-medium">
               <span class="w-1.5 h-1.5 rounded-full bg-success"></span>
               {{ t('project.statusInProject') }}

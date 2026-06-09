@@ -1,7 +1,8 @@
 /**
  * 项目相关 API
  */
-import { api } from './client'
+import { api, mockFallback } from './client'
+import { mockProjects, mockDelay } from './mock'
 
 export interface Project {
   id: string
@@ -24,16 +25,32 @@ export const projectsApi = {
     if (params?.page) query.set('page', String(params.page))
     if (params?.size) query.set('size', String(params.size))
     const qs = query.toString()
-    return api.get<ProjectListResponse>(`/projects${qs ? `?${qs}` : ''}`)
+    return mockFallback(
+      () => api.get<ProjectListResponse>(`/projects${qs ? `?${qs}` : ''}`),
+      () => mockDelay({ items: mockProjects, total: mockProjects.length }),
+    )
   },
 
   /** 获取项目详情 */
   get: (projectId: string) =>
-    api.get<Project>(`/projects/${projectId}`),
+    mockFallback(
+      () => api.get<Project>(`/projects/${projectId}`),
+      () => mockDelay(mockProjects.find(p => p.id === projectId) || mockProjects[0]),
+    ),
 
   /** 创建项目 */
   create: (data: { name: string; description?: string }) =>
-    api.post<Project>('/projects', data),
+    mockFallback(
+      () => api.post<Project>('/projects', data),
+      () => mockDelay({
+        id: `proj-${Date.now()}`,
+        name: data.name,
+        description: data.description || '',
+        status: 'active',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }),
+    ),
 
   /** 更新项目 */
   update: (projectId: string, data: Partial<Project>) =>

@@ -1,8 +1,6 @@
 <script setup lang="ts">
 /**
  * 项目详情页
- * tab 通过 URL Query 驱动，支持刷新保持
- * 参考：doc/开发文档/前端/frontend_routing_spec.md 第 9 章
  */
 import { computed, ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -10,10 +8,8 @@ import { useI18n } from 'vue-i18n'
 import { assetsApi, type AssetUploadResponse } from '@/api/assets'
 import { pagesApi, type Page } from '@/api/pages'
 import { ApiClientError } from '@/api/client'
-import BaseTabs from '@/components/base/BaseTabs.vue'
-import BaseFileUpload from '@/components/base/BaseFileUpload.vue'
-import BaseButton from '@/components/base/BaseButton.vue'
-import BaseEmptyState from '@/components/base/BaseEmptyState.vue'
+import { NTabs, NTabPane, NUpload, NButton, NEmpty } from 'naive-ui'
+import type { UploadFileInfo } from 'naive-ui'
 import { FileCheck, AlertCircle, Loader2, FileImage, PenTool } from 'lucide-vue-next'
 
 const { t } = useI18n()
@@ -44,21 +40,10 @@ function openWorkspace(pageId: string) {
 
 onMounted(() => { loadPages() })
 
-const VALID_TABS = ['pages', 'members', 'jobs', 'exports', 'settings'] as const
-type Tab = typeof VALID_TABS[number]
-
-const activeTab = computed<Tab>(() => {
-  const tab = route.query.tab as string
-  if (tab && VALID_TABS.includes(tab as Tab)) return tab as Tab
-  return 'pages'
-})
-
-const tabs = computed(() => VALID_TABS.map(key => ({
-  key,
-  label: t(`routes.projects.tabs.${key}`),
-})))
+const activeTab = ref((route.query.tab as string) || 'pages')
 
 function switchTab(tab: string) {
+  activeTab.value = tab
   router.replace({ query: { ...route.query, tab } })
 }
 
@@ -72,9 +57,14 @@ interface UploadItem {
 
 const uploadItems = ref<UploadItem[]>([])
 
-function handleFiles(files: File[]) {
-  const newItems: UploadItem[] = files.map(f => ({ file: f, status: 'pending' }))
-  uploadItems.value.push(...newItems)
+function handleUploadChange(options: { fileList: UploadFileInfo[] }) {
+  const newFiles = options.fileList
+    .filter(f => f.status === 'pending' || !f.status)
+    .map(f => ({
+      file: f.file!,
+      status: 'pending' as const,
+    }))
+  uploadItems.value = newFiles
 }
 
 async function startUpload() {
@@ -113,23 +103,17 @@ function clearCompleted() {
       </div>
 
       <!-- Tab 导航 -->
-      <BaseTabs
-        :tabs="tabs"
-        :active-key="activeTab"
-        class="mb-6"
-        @update:active-key="switchTab"
-      />
-
-      <!-- Tab 内容 -->
-      <div class="py-4">
-        <!-- 页面 tab：上传图片 + 页面列表 -->
-        <div v-if="activeTab === 'pages'">
-          <BaseFileUpload
+      <NTabs v-model:value="activeTab" type="line" @update:value="switchTab">
+        <NTabPane name="pages" :tab="t('routes.projects.tabs.pages')">
+          <NUpload
+            multiple
+            directory-dnd
             accept="image/*"
-            :multiple="true"
-            :max-size-m-b="50"
-            @select="handleFiles"
-          />
+            :max="50"
+            @change="handleUploadChange"
+          >
+            <NButton>{{ t('upload.selectFiles') }}</NButton>
+          </NUpload>
 
           <!-- 上传按钮和文件列表 -->
           <div v-if="uploadItems.length > 0" class="mt-4">
@@ -138,17 +122,17 @@ function clearCompleted() {
                 {{ uploadItems.length }} {{ t('upload.selectFiles') }}
               </span>
               <div class="flex gap-2">
-                <BaseButton variant="ghost" size="sm" @click="clearCompleted">
+                <NButton size="small" @click="clearCompleted">
                   {{ t('common.close') }}
-                </BaseButton>
-                <BaseButton
-                  variant="primary"
-                  size="sm"
+                </NButton>
+                <NButton
+                  type="primary"
+                  size="small"
                   :disabled="!uploadItems.some(i => i.status === 'pending')"
                   @click="startUpload"
                 >
                   {{ t('upload.startUpload') }}
-                </BaseButton>
+                </NButton>
               </div>
             </div>
 
@@ -184,11 +168,10 @@ function clearCompleted() {
               <div v-for="i in 3" :key="i" class="h-16 bg-surface-alt rounded-lg animate-pulse"></div>
             </div>
 
-            <BaseEmptyState
+            <NEmpty
               v-else-if="pages.length === 0"
-              :icon="FileImage"
-              :title="t('common.noData')"
               :description="t('upload.selectFiles')"
+              class="py-12"
             />
 
             <div v-else class="space-y-2">
@@ -203,35 +186,31 @@ function clearCompleted() {
                   <p class="text-body text-text truncate">{{ page.filename }}</p>
                   <p class="text-caption text-text-muted">{{ page.width }}×{{ page.height }} · {{ page.status }}</p>
                 </div>
-                <BaseButton variant="ghost" size="sm" :left-icon="PenTool">
+                <NButton size="small" quaternary>
+                  <template #icon><PenTool /></template>
                   {{ t('annotation.tools.select') }}
-                </BaseButton>
+                </NButton>
               </div>
             </div>
           </div>
-        </div>
+        </NTabPane>
 
-        <div v-else-if="activeTab === 'members'">
-          <div class="text-center py-12">
-            <p class="text-body text-text-muted">{{ t('common.noData') }}</p>
-          </div>
-        </div>
-        <div v-else-if="activeTab === 'jobs'">
-          <div class="text-center py-12">
-            <p class="text-body text-text-muted">{{ t('common.noData') }}</p>
-          </div>
-        </div>
-        <div v-else-if="activeTab === 'exports'">
-          <div class="text-center py-12">
-            <p class="text-body text-text-muted">{{ t('common.noData') }}</p>
-          </div>
-        </div>
-        <div v-else-if="activeTab === 'settings'">
-          <div class="text-center py-12">
-            <p class="text-body text-text-muted">{{ t('common.noData') }}</p>
-          </div>
-        </div>
-      </div>
+        <NTabPane name="members" :tab="t('routes.projects.tabs.members')">
+          <NEmpty :description="t('common.noData')" class="py-12" />
+        </NTabPane>
+
+        <NTabPane name="jobs" :tab="t('routes.projects.tabs.jobs')">
+          <NEmpty :description="t('common.noData')" class="py-12" />
+        </NTabPane>
+
+        <NTabPane name="exports" :tab="t('routes.projects.tabs.exports')">
+          <NEmpty :description="t('common.noData')" class="py-12" />
+        </NTabPane>
+
+        <NTabPane name="settings" :tab="t('routes.projects.tabs.settings')">
+          <NEmpty :description="t('common.noData')" class="py-12" />
+        </NTabPane>
+      </NTabs>
     </div>
   </div>
 </template>

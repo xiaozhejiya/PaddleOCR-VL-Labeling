@@ -1,7 +1,16 @@
 <script setup lang="ts">
-// 根组件，负责渲染路由视图
+import { NConfigProvider, NMessageProvider, NNotificationProvider, NDialogProvider } from 'naive-ui'
+import { themeOverrides } from './theme'
 </script>
 
 <template>
-  <router-view />
+  <NConfigProvider :theme-overrides="themeOverrides">
+    <NMessageProvider>
+      <NNotificationProvider>
+        <NDialogProvider>
+          <router-view />
+        </NDialogProvider>
+      </NNotificationProvider>
+    </NMessageProvider>
+  </NConfigProvider>
 </template>

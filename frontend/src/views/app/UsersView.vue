@@ -3,8 +3,7 @@
  * 用户管理页（仅系统管理员可访问）
  */
 import { useI18n } from 'vue-i18n'
-import BaseEmptyState from '@/components/base/BaseEmptyState.vue'
-import { Users } from 'lucide-vue-next'
+import { NEmpty } from 'naive-ui'
 
 const { t } = useI18n()
 </script>
@@ -16,11 +15,7 @@ const { t } = useI18n()
         <h1 class="text-title text-text">{{ t('nav.users') }}</h1>
       </div>
 
-      <BaseEmptyState
-        :icon="Users"
-        :title="t('common.noData')"
-        :description="t('common.noData')"
-      />
+      <NEmpty :description="t('common.noData')" class="py-16" />
     </div>
   </div>
 </template>

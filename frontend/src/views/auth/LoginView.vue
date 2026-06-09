@@ -1,15 +1,13 @@
 <script setup lang="ts">
 /**
  * 登录页
- * 登录成功后跳回安全 redirect，否则跳到 projects.index
  */
 import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuth } from '@/composables/useAuth'
 import { ApiClientError } from '@/api/client'
-import BaseInput from '@/components/base/BaseInput.vue'
-import BaseButton from '@/components/base/BaseButton.vue'
+import { NInput, NFormItem, NButton, NAlert } from 'naive-ui'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -21,10 +19,6 @@ const password = ref('')
 const loading = ref(false)
 const error = ref('')
 
-/**
- * redirect 安全校验
- * 与 router 中保持一致
- */
 function isValidRedirect(redirect: string): boolean {
   if (!redirect.startsWith('/')) return false
   if (redirect.startsWith('//')) return false
@@ -42,7 +36,6 @@ async function handleLogin() {
   try {
     await login(username.value, password.value)
 
-    // 登录成功，跳转 redirect 或默认页
     const redirect = route.query.redirect as string
     if (redirect && isValidRedirect(redirect)) {
       router.replace(redirect)
@@ -72,34 +65,37 @@ async function handleLogin() {
     <h1 class="text-title text-center mb-6">{{ t('auth.login') }}</h1>
 
     <form @submit.prevent="handleLogin" class="space-y-4">
-      <div v-if="error" class="p-3 bg-danger/10 text-danger text-sm rounded-md">
+      <NAlert v-if="error" type="error" :bordered="false" class="mb-4">
         {{ error }}
-      </div>
+      </NAlert>
 
-      <BaseInput
-        v-model="username"
-        :label="t('auth.username')"
-        :placeholder="t('auth.username')"
-        :disabled="loading"
-      />
+      <NFormItem :label="t('auth.username')">
+        <NInput
+          v-model:value="username"
+          :placeholder="t('auth.username')"
+          :disabled="loading"
+        />
+      </NFormItem>
 
-      <BaseInput
-        v-model="password"
-        type="password"
-        :label="t('auth.password')"
-        :placeholder="t('auth.password')"
-        :disabled="loading"
-      />
+      <NFormItem :label="t('auth.password')">
+        <NInput
+          v-model:value="password"
+          type="password"
+          show-password-on="click"
+          :placeholder="t('auth.password')"
+          :disabled="loading"
+        />
+      </NFormItem>
 
-      <BaseButton
-        type="submit"
-        variant="primary"
+      <NButton
+        type="primary"
+        block
         :loading="loading"
         :disabled="!username || !password"
-        class="w-full"
+        attr-type="submit"
       >
         {{ t('auth.login') }}
-      </BaseButton>
+      </NButton>
     </form>
 
     <p class="mt-4 text-center text-sm text-text-muted">
