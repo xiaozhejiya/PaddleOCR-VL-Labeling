@@ -127,38 +127,6 @@ async function request<T>(
   }
 }
 
-/**
- * Mock fallback 工具
- * 当后端不可用时，自动 fallback 到 mock 数据
- * 首次失败后记录状态，后续请求直接走 mock，避免重复请求失败的延迟
- */
-let backendAvailable: boolean | null = null
-
-export async function mockFallback<T>(
-  apiCall: () => Promise<T>,
-  mockData: T | (() => Promise<T> | T),
-): Promise<T> {
-  // 如果已确认后端不可用，直接走 mock
-  if (backendAvailable === false) {
-    return typeof mockData === 'function'
-      ? (mockData as () => Promise<T> | T)()
-      : structuredClone(mockData) as T
-  }
-
-  try {
-    const result = await apiCall()
-    backendAvailable = true
-    return result
-  } catch {
-    // 后端不可用，切换到 mock 模式
-    backendAvailable = false
-    console.info('[Mock] Backend unavailable, using mock data')
-    return typeof mockData === 'function'
-      ? (mockData as () => Promise<T> | T)()
-      : structuredClone(mockData) as T
-  }
-}
-
 export const api = {
   get: <T>(endpoint: string) => request<T>(endpoint),
 

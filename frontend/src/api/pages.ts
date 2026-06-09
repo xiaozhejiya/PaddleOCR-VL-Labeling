@@ -1,8 +1,7 @@
 /**
  * 页面相关 API
  */
-import { api, mockFallback } from './client'
-import { mockPages, mockCapabilities, mockDelay } from './mock'
+import { api } from './client'
 
 export interface Page {
   page_id: string
@@ -29,21 +28,17 @@ export interface Capabilities {
 
 export const pagesApi = {
   /** 获取项目页面列表 */
-  list: (projectId: string, _params?: { page?: number; page_size?: number }) =>
-    mockFallback(
-      () => api.get<PageListResponse>(`/projects/${projectId}/pages`),
-      () => mockDelay({
-        items: mockPages.filter(p => p.project_id === projectId),
-        total: mockPages.filter(p => p.project_id === projectId).length,
-      }),
-    ),
+  list: (projectId: string, params?: { page?: number; page_size?: number }) => {
+    const query = new URLSearchParams()
+    if (params?.page) query.set('page', String(params.page))
+    if (params?.page_size) query.set('page_size', String(params.page_size))
+    const qs = query.toString()
+    return api.get<PageListResponse>(`/projects/${projectId}/pages${qs ? `?${qs}` : ''}`)
+  },
 
   /** 获取页面详情 */
   get: (pageId: string) =>
-    mockFallback(
-      () => api.get<Page>(`/pages/${pageId}`),
-      () => mockDelay(mockPages.find(p => p.page_id === pageId) || mockPages[0]),
-    ),
+    api.get<Page>(`/pages/${pageId}`),
 
   /** 获取页面图片访问 URL */
   getImageUrl: (pageId: string) =>
@@ -51,8 +46,9 @@ export const pagesApi = {
 
   /** 获取用户在项目中的 capabilities */
   getCapabilities: (projectId: string) =>
-    mockFallback(
-      () => api.get<Capabilities>(`/projects/${projectId}/me/capabilities`),
-      () => mockDelay(mockCapabilities),
-    ),
+    api.get<Capabilities>(`/projects/${projectId}/me/capabilities`),
+
+  /** 删除页面 */
+  delete: (pageId: string) =>
+    api.delete<void>(`/pages/${pageId}`),
 }

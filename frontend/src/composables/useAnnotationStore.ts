@@ -128,6 +128,11 @@ export function useAnnotationStore() {
     obj.bbox_xyxy = [xmin + dx, ymin + dy, xmax + dx, ymax + dy]
   }
 
+  /** 开始拖拽前保存快照（供 AnnotationCanvas 在 mousedown 时调用） */
+  function savePreDragSnapshot() {
+    saveSnapshot()
+  }
+
   /** 调整 bbox 大小（通过控制点索引 0-7） */
   function resizeObject(id: string, handleIndex: number, imgX: number, imgY: number) {
     const obj = objects.value.find(o => o.id === id)
@@ -212,7 +217,7 @@ export function useAnnotationStore() {
     moveObject,
     resizeObject,
     setReadOrder,
-    saveSnapshot,
+    savePreDragSnapshot,
     loadFromRevision,
     toDraft,
     undo,

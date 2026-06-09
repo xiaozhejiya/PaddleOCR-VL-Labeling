@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import BigInteger, CheckConstraint, Identity, Text, text
+from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, Identity, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -31,4 +31,10 @@ class Project(TimestampMixin, Base):
         nullable=False,
         server_default=text("'v1'"),
         comment="项目 schema 版本：用于后续数据格式升级和兼容判断。",
+    )
+    created_by: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("users.id"),
+        nullable=False,
+        comment="创建者用户 ID。",
     )

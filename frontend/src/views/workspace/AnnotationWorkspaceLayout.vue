@@ -12,9 +12,11 @@
  * 1. 不在路由层实现 bbox 绘制、坐标换算、自动保存 debounce 或冲突合并算法
  */
 import { ref, provide, onMounted, onUnmounted } from 'vue'
-import { useRouter, type RouteLocationNormalized } from 'vue-router'
+import { useRoute, useRouter, type RouteLocationNormalized } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuth } from '@/composables/useAuth'
+import { pagesApi } from '@/api/pages'
+import { projectsApi } from '@/api/projects'
 import {
   Search,
   Keyboard,
@@ -25,21 +27,40 @@ import {
 } from 'lucide-vue-next'
 
 const { t } = useI18n()
+const route = useRoute()
 const router = useRouter()
 const { user } = useAuth()
+
+// ── 面包屑数据 ──
+const projectName = ref('')
+const projectId = ref('')
+const pageFilename = ref('')
+
+async function loadBreadcrumb() {
+  const pageId = route.params.page_id as string
+  if (!pageId) return
+  try {
+    const page = await pagesApi.get(pageId)
+    pageFilename.value = page.filename
+    if (page.project_id) {
+      projectId.value = String(page.project_id)
+      try {
+        const project = await projectsApi.get(projectId.value)
+        projectName.value = project.name
+      } catch { /* ignore */ }
+    }
+  } catch { /* ignore */ }
+}
 
 // ── 保存状态 ──
 type SaveStatus = 'saved' | 'dirty' | 'autosave_pending' | 'autosaving' | 'autosave_failed' | 'manual_saving' | 'conflict' | 'readonly'
 
 const saveStatus = ref<SaveStatus>('saved')
-const pageTitle = ref('')
 
 function updateSaveStatus(status: SaveStatus) { saveStatus.value = status }
-function updatePageTitle(title: string) { pageTitle.value = title }
 
 provide('saveStatus', saveStatus)
 provide('updateSaveStatus', updateSaveStatus)
-provide('updatePageTitle', updatePageTitle)
 
 // ── 离页守卫 ──
 function needsLeaveConfirmation(): boolean {
@@ -62,7 +83,10 @@ function handleBeforeUnload(event: BeforeUnloadEvent) {
   if (needsLeaveConfirmation()) { event.preventDefault(); event.returnValue = '' }
 }
 
-onMounted(() => { window.addEventListener('beforeunload', handleBeforeUnload) })
+onMounted(() => {
+  window.addEventListener('beforeunload', handleBeforeUnload)
+  loadBreadcrumb()
+})
 onUnmounted(() => {
   window.removeEventListener('beforeunload', handleBeforeUnload)
   unregisterGuard()
@@ -79,11 +103,18 @@ onUnmounted(() => {
           {{ t('nav.projects') }}
         </router-link>
         <span class="text-text-muted">/</span>
-        <span class="text-text truncate max-w-48">{{ t('common.loading') }}</span>
+        <router-link
+          v-if="projectId"
+          :to="{ name: 'projects.detail', params: { project_id: projectId } }"
+          class="text-text hover:text-primary truncate max-w-48 transition-colors"
+        >
+          {{ projectName || t('common.loading') }}
+        </router-link>
+        <span v-else class="text-text truncate max-w-48">{{ projectName || t('common.loading') }}</span>
         <span class="text-text-muted">/</span>
-        <span class="text-text truncate max-w-48">{{ t('common.loading') }}</span>
+        <span class="text-text truncate max-w-48">{{ pageFilename || t('common.loading') }}</span>
         <span class="text-text-muted">/</span>
-        <span class="text-text font-medium">{{ pageTitle || t('routes.pages.workspace') }}</span>
+        <span class="text-text font-medium">{{ t('routes.pages.workspace') }}</span>
       </nav>
 
       <!-- 右侧操作区 -->
@@ -94,11 +125,8 @@ onUnmounted(() => {
           <input
             type="text"
             :placeholder="t('common.searchPlaceholder')"
-            class="h-7 w-56 pl-7 pr-8 text-caption bg-surface-muted border border-border rounded-md text-text placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-focus focus:border-primary transition-colors"
+            class="h-7 w-56 pl-7 pr-3 text-caption bg-surface-muted border border-border rounded-md text-text placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-focus focus:border-primary transition-colors"
           />
-          <kbd class="absolute right-1.5 top-1/2 -translate-y-1/2 text-micro font-mono text-text-muted bg-surface border border-border rounded px-1 py-0.5">
-            ⌘K
-          </kbd>
         </div>
 
         <!-- 快捷键 -->
@@ -199,30 +227,10 @@ onUnmounted(() => {
 
     <!-- ═══ 主要工作区 ═══ -->
     <div class="flex-1 flex overflow-hidden">
-      <!-- 左侧面板 -->
-      <aside class="w-64 bg-surface border-r border-border shrink-0 overflow-y-auto flex flex-col">
-        <slot name="queue">
-          <div class="p-3">
-            <h3 class="text-body-medium text-text mb-2">{{ t('workspace.taskQueue') }}</h3>
-            <p class="text-caption text-text-muted">{{ t('common.loading') }}</p>
-          </div>
-        </slot>
-      </aside>
-
-      <!-- 中间画布区 -->
+      <!-- 中间画布区（左右面板由子路由自行渲染） -->
       <main class="flex-1 bg-bg-canvas relative overflow-hidden flex flex-col">
         <router-view />
       </main>
-
-      <!-- 右侧属性面板 -->
-      <aside class="w-72 bg-surface border-l border-border shrink-0 overflow-y-auto flex flex-col">
-        <slot name="panel">
-          <div class="p-3">
-            <h3 class="text-body-medium text-text mb-2">{{ t('workspace.propertiesPanel') }}</h3>
-            <p class="text-caption text-text-muted">{{ t('common.loading') }}</p>
-          </div>
-        </slot>
-      </aside>
     </div>
 
     <!-- ═══ 底部状态栏 ═══ -->

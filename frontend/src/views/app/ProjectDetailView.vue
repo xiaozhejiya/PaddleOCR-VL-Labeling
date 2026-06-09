@@ -1,16 +1,15 @@
 <script setup lang="ts">
 /**
- * 项目详情页
+ * 项目详情页 — 优化版文件上传
+ * 支持拖拽上传、实时进度、取消、重试、上传后自动刷新页面列表
  */
-import { computed, ref, onMounted } from 'vue'
+import { computed, ref, onMounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { assetsApi, type AssetUploadResponse } from '@/api/assets'
+import { getToken } from '@/api/client'
 import { pagesApi, type Page } from '@/api/pages'
-import { ApiClientError } from '@/api/client'
-import { NTabs, NTabPane, NUpload, NButton, NEmpty } from 'naive-ui'
-import type { UploadFileInfo } from 'naive-ui'
-import { FileCheck, AlertCircle, Loader2, FileImage, PenTool } from 'lucide-vue-next'
+import { NTabs, NTabPane, NButton, NEmpty } from 'naive-ui'
+import { FileCheck, AlertCircle, Loader2, FileImage, PenTool, X, RotateCcw, Upload } from 'lucide-vue-next'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -47,43 +46,189 @@ function switchTab(tab: string) {
   router.replace({ query: { ...route.query, tab } })
 }
 
-// ── 上传状态 ──
-interface UploadItem {
-  file: File
-  status: 'pending' | 'uploading' | 'done' | 'error'
-  result?: AssetUploadResponse['data']
-  error?: string
+// ── 拖拽状态 ──
+const isDragOver = ref(false)
+let dragCounter = 0
+
+function onDragEnter(e: DragEvent) {
+  e.preventDefault()
+  dragCounter++
+  isDragOver.value = true
 }
 
-const uploadItems = ref<UploadItem[]>([])
-
-function handleUploadChange(options: { fileList: UploadFileInfo[] }) {
-  const newFiles = options.fileList
-    .filter(f => f.status === 'pending' || !f.status)
-    .map(f => ({
-      file: f.file!,
-      status: 'pending' as const,
-    }))
-  uploadItems.value = newFiles
+function onDragOver(e: DragEvent) {
+  e.preventDefault()
 }
 
-async function startUpload() {
-  const pending = uploadItems.value.filter(i => i.status === 'pending')
-  for (const item of pending) {
-    item.status = 'uploading'
-    try {
-      const res = await assetsApi.upload(projectId.value, item.file)
-      item.status = 'done'
-      item.result = res.data
-    } catch (e) {
-      item.status = 'error'
-      item.error = e instanceof ApiClientError ? e.message : t('upload.failed')
-    }
+function onDragLeave(e: DragEvent) {
+  e.preventDefault()
+  dragCounter--
+  if (dragCounter === 0) {
+    isDragOver.value = false
   }
 }
 
+function onDrop(e: DragEvent) {
+  e.preventDefault()
+  dragCounter = 0
+  isDragOver.value = false
+  const files = Array.from(e.dataTransfer?.files || [])
+  addFiles(files)
+}
+
+// ── 上传队列 ──
+interface UploadItem {
+  id: string
+  file: File
+  status: 'pending' | 'uploading' | 'done' | 'error' | 'cancelled'
+  progress: number
+  error?: string
+  result?: { asset_id: string; document_id: string; page_id: string; width: number; height: number }
+  xhr?: XMLHttpRequest
+  fadeOut: boolean
+}
+
+const uploadItems = ref<UploadItem[]>([])
+let idCounter = 0
+
+function addFiles(files: File[]) {
+  const imageFiles = files.filter(f => f.type.startsWith('image/'))
+  for (const file of imageFiles) {
+    uploadItems.value.push({
+      id: `upload-${++idCounter}`,
+      file,
+      status: 'pending',
+      progress: 0,
+      fadeOut: false,
+    })
+  }
+}
+
+function onFileSelect(e: Event) {
+  const input = e.target as HTMLInputElement
+  if (input.files) {
+    addFiles(Array.from(input.files))
+    input.value = ''
+  }
+}
+
+function startUpload() {
+  const pending = uploadItems.value.filter(i => i.status === 'pending')
+  for (const item of pending) {
+    uploadSingle(item)
+  }
+}
+
+function uploadSingle(item: UploadItem) {
+  item.status = 'uploading'
+  item.progress = 0
+
+  const xhr = new XMLHttpRequest()
+  item.xhr = xhr
+
+  xhr.upload.onprogress = (e) => {
+    if (e.lengthComputable) {
+      item.progress = Math.round((e.loaded / e.total) * 100)
+    }
+  }
+
+  xhr.onload = () => {
+    if (xhr.status >= 200 && xhr.status < 300) {
+      try {
+        const res = JSON.parse(xhr.responseText)
+        item.status = 'done'
+        item.progress = 100
+        item.result = res.data
+        // 淡出后移除
+        setTimeout(() => {
+          item.fadeOut = true
+          setTimeout(() => {
+            uploadItems.value = uploadItems.value.filter(i => i.id !== item.id)
+          }, 300)
+        }, 800)
+        // 刷新页面列表
+        loadPages()
+      } catch {
+        item.status = 'error'
+        item.error = '解析响应失败'
+      }
+    } else {
+      item.status = 'error'
+      try {
+        const body = JSON.parse(xhr.responseText)
+        item.error = body.detail || body.message || `HTTP ${xhr.status}`
+      } catch {
+        item.error = `HTTP ${xhr.status}`
+      }
+    }
+  }
+
+  xhr.onerror = () => {
+    item.status = 'error'
+    item.error = t('upload.failed')
+  }
+
+  const formData = new FormData()
+  formData.append('file', item.file)
+  xhr.open('POST', `/api/v1/projects/${projectId.value}/assets/upload`)
+  xhr.setRequestHeader('Authorization', `Bearer ${getToken()}`)
+  xhr.send(formData)
+}
+
+function cancelUpload(item: UploadItem) {
+  if (item.xhr) {
+    item.xhr.abort()
+    item.xhr = undefined
+  }
+  item.status = 'cancelled'
+  item.fadeOut = true
+  setTimeout(() => {
+    uploadItems.value = uploadItems.value.filter(i => i.id !== item.id)
+  }, 300)
+}
+
+function retryUpload(item: UploadItem) {
+  item.status = 'pending'
+  item.error = undefined
+  item.progress = 0
+  uploadSingle(item)
+}
+
+function removeItem(item: UploadItem) {
+  if (item.status === 'uploading' && item.xhr) {
+    item.xhr.abort()
+  }
+  item.fadeOut = true
+  setTimeout(() => {
+    uploadItems.value = uploadItems.value.filter(i => i.id !== item.id)
+  }, 300)
+}
+
 function clearCompleted() {
-  uploadItems.value = uploadItems.value.filter(i => i.status !== 'done')
+  const toRemove = uploadItems.value.filter(i => i.status === 'done' || i.status === 'cancelled')
+  for (const item of toRemove) {
+    item.fadeOut = true
+  }
+  setTimeout(() => {
+    uploadItems.value = uploadItems.value.filter(i => i.status !== 'done' && i.status !== 'cancelled')
+  }, 300)
+}
+
+const pendingCount = computed(() => uploadItems.value.filter(i => i.status === 'pending').length)
+const activeCount = computed(() => uploadItems.value.filter(i => i.status === 'uploading').length)
+
+// ── 删除页面 ──
+const deletingId = ref<string | null>(null)
+
+async function deletePage(pageId: string, e: Event) {
+  e.stopPropagation()
+  if (!confirm(t('upload.deleteConfirm'))) return
+  deletingId.value = pageId
+  try {
+    await pagesApi.delete(pageId)
+    pages.value = pages.value.filter(p => p.page_id !== pageId)
+  } catch { /* ignore */ }
+  deletingId.value = null
 }
 </script>
 
@@ -105,30 +250,49 @@ function clearCompleted() {
       <!-- Tab 导航 -->
       <NTabs v-model:value="activeTab" type="line" @update:value="switchTab">
         <NTabPane name="pages" :tab="t('routes.projects.tabs.pages')">
-          <NUpload
-            multiple
-            directory-dnd
-            accept="image/*"
-            :max="50"
-            @change="handleUploadChange"
+          <!-- 拖拽上传区域 -->
+          <div
+            class="relative border-2 border-dashed rounded-lg p-8 text-center transition-all duration-200 cursor-pointer"
+            :class="isDragOver
+              ? 'border-primary bg-primary/5'
+              : 'border-border hover:border-primary/40 hover:bg-surface-muted'"
+            @dragenter="onDragEnter"
+            @dragover="onDragOver"
+            @dragleave="onDragLeave"
+            @drop="onDrop"
+            @click="($refs.fileInput as HTMLInputElement).click()"
           >
-            <NButton>{{ t('upload.selectFiles') }}</NButton>
-          </NUpload>
+            <input
+              ref="fileInput"
+              type="file"
+              multiple
+              accept="image/*"
+              class="hidden"
+              @change="onFileSelect"
+            />
+            <Upload class="w-8 h-8 mx-auto mb-3" :class="isDragOver ? 'text-primary' : 'text-text-muted'" />
+            <p class="text-body text-text mb-1">
+              {{ isDragOver ? t('upload.dropHere') : t('upload.selectFiles') }}
+            </p>
+            <p class="text-caption text-text-muted">
+              {{ isDragOver ? '' : t('upload.dragHint') }}
+            </p>
+          </div>
 
-          <!-- 上传按钮和文件列表 -->
+          <!-- 上传队列 -->
           <div v-if="uploadItems.length > 0" class="mt-4">
             <div class="flex items-center justify-between mb-3">
               <span class="text-caption text-text-secondary">
-                {{ uploadItems.length }} {{ t('upload.selectFiles') }}
+                {{ activeCount > 0 ? `${activeCount} ${t('upload.uploading')}` : `${uploadItems.length} ${t('upload.selectFiles')}` }}
               </span>
               <div class="flex gap-2">
-                <NButton size="small" @click="clearCompleted">
+                <NButton size="small" @click="clearCompleted" :disabled="!uploadItems.some(i => i.status === 'done' || i.status === 'cancelled')">
                   {{ t('common.close') }}
                 </NButton>
                 <NButton
+                  v-if="pendingCount > 0"
                   type="primary"
                   size="small"
-                  :disabled="!uploadItems.some(i => i.status === 'pending')"
                   @click="startUpload"
                 >
                   {{ t('upload.startUpload') }}
@@ -138,25 +302,78 @@ function clearCompleted() {
 
             <!-- 文件状态列表 -->
             <div class="space-y-2">
-              <div
-                v-for="(item, index) in uploadItems"
-                :key="index"
-                class="flex items-center gap-3 p-3 bg-surface rounded-lg border border-border"
-              >
-                <Loader2 v-if="item.status === 'uploading'" class="w-4 h-4 text-primary animate-spin shrink-0" />
-                <FileCheck v-else-if="item.status === 'done'" class="w-4 h-4 text-success shrink-0" />
-                <AlertCircle v-else-if="item.status === 'error'" class="w-4 h-4 text-danger shrink-0" />
-                <div class="flex-1 min-w-0">
-                  <p class="text-body text-text truncate">{{ item.file.name }}</p>
-                  <p v-if="item.result" class="text-caption text-text-muted">
-                    {{ item.result.asset_id }} · {{ item.result.width }}×{{ item.result.height }}
-                  </p>
-                  <p v-if="item.error" class="text-caption text-danger">{{ item.error }}</p>
+              <TransitionGroup name="upload-item">
+                <div
+                  v-for="item in uploadItems"
+                  :key="item.id"
+                  class="flex items-center gap-3 p-3 bg-surface rounded-lg border border-border transition-all duration-300"
+                  :class="{
+                    'opacity-0 -translate-y-2': item.fadeOut,
+                    'border-danger/40 bg-danger/5': item.status === 'error',
+                  }"
+                >
+                  <!-- 状态图标 -->
+                  <Loader2 v-if="item.status === 'uploading'" class="w-4 h-4 text-primary animate-spin shrink-0" />
+                  <FileCheck v-else-if="item.status === 'done'" class="w-4 h-4 text-success shrink-0" />
+                  <AlertCircle v-else-if="item.status === 'error'" class="w-4 h-4 text-danger shrink-0" />
+                  <X v-else-if="item.status === 'cancelled'" class="w-4 h-4 text-text-muted shrink-0" />
+                  <FileImage v-else class="w-4 h-4 text-text-muted shrink-0" />
+
+                  <!-- 文件信息 -->
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2">
+                      <p class="text-body text-text truncate">{{ item.file.name }}</p>
+                      <span class="text-micro text-text-muted shrink-0">
+                        {{ (item.file.size / 1024 / 1024).toFixed(1) }}MB
+                      </span>
+                    </div>
+
+                    <!-- 进度条 -->
+                    <div v-if="item.status === 'uploading'" class="mt-1.5 h-1 bg-surface-muted rounded-full overflow-hidden">
+                      <div
+                        class="h-full bg-primary rounded-full transition-all duration-300"
+                        :style="{ width: item.progress + '%' }"
+                      ></div>
+                    </div>
+
+                    <!-- 结果信息 -->
+                    <p v-if="item.result" class="text-caption text-text-muted mt-1">
+                      {{ item.result.width }}×{{ item.result.height }}
+                    </p>
+
+                    <!-- 错误信息 -->
+                    <p v-if="item.error" class="text-caption text-danger mt-1">{{ item.error }}</p>
+                  </div>
+
+                  <!-- 操作按钮 -->
+                  <div class="flex items-center gap-1 shrink-0">
+                    <button
+                      v-if="item.status === 'uploading'"
+                      class="p-1 rounded hover:bg-surface-muted text-text-muted hover:text-text transition-colors"
+                      :title="t('common.cancel')"
+                      @click="cancelUpload(item)"
+                    >
+                      <X class="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      v-if="item.status === 'error'"
+                      class="p-1 rounded hover:bg-surface-muted text-text-muted hover:text-primary transition-colors"
+                      :title="t('common.retry')"
+                      @click="retryUpload(item)"
+                    >
+                      <RotateCcw class="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      v-if="item.status === 'pending' || item.status === 'done' || item.status === 'cancelled'"
+                      class="p-1 rounded hover:bg-surface-muted text-text-muted hover:text-text transition-colors"
+                      :title="t('common.remove')"
+                      @click="removeItem(item)"
+                    >
+                      <X class="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
-                <span class="text-caption text-text-muted shrink-0">
-                  {{ (item.file.size / 1024 / 1024).toFixed(1) }}MB
-                </span>
-              </div>
+              </TransitionGroup>
             </div>
           </div>
 
@@ -190,6 +407,15 @@ function clearCompleted() {
                   <template #icon><PenTool /></template>
                   {{ t('annotation.tools.select') }}
                 </NButton>
+                <NButton
+                  size="small"
+                  quaternary
+                  type="error"
+                  :loading="deletingId === page.page_id"
+                  @click="deletePage(page.page_id, $event)"
+                >
+                  <template #icon><X class="w-3.5 h-3.5" /></template>
+                </NButton>
               </div>
             </div>
           </div>
@@ -214,3 +440,18 @@ function clearCompleted() {
     </div>
   </div>
 </template>
+
+<style scoped>
+.upload-item-enter-active,
+.upload-item-leave-active {
+  transition: all 0.3s ease;
+}
+.upload-item-enter-from {
+  opacity: 0;
+  transform: translateY(-10px);
+}
+.upload-item-leave-to {
+  opacity: 0;
+  transform: translateX(20px);
+}
+</style>

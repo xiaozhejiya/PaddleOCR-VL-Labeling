@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings, is_missing_or_placeholder
 from app.db.models import MemberRoleBinding, ProjectMember, RoleRegistry, User
+from app.db.models.project import Project
 from app.db.session import get_db_session
 
 JWT_ALGORITHM = "HS256"
@@ -179,6 +180,11 @@ def ensure_project_capability(
     capability: str,
 ) -> None:
     """为 project_id 不在路径参数中的接口显式校验项目能力。"""
+
+    # 项目创建者自动拥有所有项目能力
+    project = db.get(Project, project_id)
+    if project and project.created_by == user_id:
+        return
 
     capabilities = get_project_capabilities(
         db,

@@ -55,9 +55,12 @@ watch(() => props.imageUrl, (url) => {
     // 延迟到下一帧确保容器尺寸已更新
     requestAnimationFrame(() => {
       if (containerRef.value) {
-        const rect = containerRef.value.getBoundingClientRect()
-        transform.setContainerSize(rect.width, rect.height)
+        const w = containerRef.value.offsetWidth
+        const h = containerRef.value.offsetHeight
+        transform.setContainerSize(w, h)
+        // 自适应容器大小，居中显示
         transform.fitToContainer()
+        emit('update:zoomLevel', transform.zoomPercent.value)
       }
     })
   }
@@ -69,8 +72,7 @@ let resizeObserver: ResizeObserver | null = null
 
 onMounted(() => {
   if (containerRef.value) {
-    const rect = containerRef.value.getBoundingClientRect()
-    transform.setContainerSize(rect.width, rect.height)
+    transform.setContainerSize(containerRef.value.offsetWidth, containerRef.value.offsetHeight)
   }
   resizeObserver = new ResizeObserver((entries) => {
     const entry = entries[0]
@@ -192,11 +194,6 @@ function onMouseUp() {
     tempRect.value = null
   }
 
-  if (dragType.value === 'move' || dragType.value === 'resize') {
-    // 保存移动/调整快照
-    store.saveSnapshot()
-  }
-
   isDragging.value = false
   dragType.value = null
   dragObjectId.value = null
@@ -224,6 +221,7 @@ function onBBoxDragStart(id: string, e: MouseEvent) {
   const screenY = e.clientY - rect.top
   const imgPt = transform.screenToImage(screenX, screenY)
 
+  store.savePreDragSnapshot()
   isDragging.value = true
   dragType.value = 'move'
   dragObjectId.value = id
@@ -232,6 +230,7 @@ function onBBoxDragStart(id: string, e: MouseEvent) {
 
 function onBBoxHandleDragStart(id: string, handleIndex: number, e: MouseEvent) {
   e.stopPropagation()
+  store.savePreDragSnapshot()
   isDragging.value = true
   dragType.value = 'resize'
   dragObjectId.value = id
@@ -312,7 +311,7 @@ const cursorClass = computed(() => {
     <!-- 图片 + SVG 层 -->
     <div
       v-show="imageLoaded"
-      class="origin-top-left"
+      class="absolute top-0 left-0 origin-top-left pointer-events-none"
       :style="{ transform: transform.transformStyle.value }"
     >
       <!-- 页面图片 -->
@@ -328,7 +327,7 @@ const cursorClass = computed(() => {
 
       <!-- SVG overlay -->
       <svg
-        class="absolute top-0 left-0"
+        class="absolute top-0 left-0 pointer-events-auto"
         :width="transform.imageSize.value.x"
         :height="transform.imageSize.value.y"
         :viewBox="svgViewBox"

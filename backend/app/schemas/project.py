@@ -26,6 +26,7 @@ class ProjectOut(BaseModel):
     name: str
     description: str | None
     schema_version: str
+    created_by: int
     created_at: datetime
     updated_at: datetime
 

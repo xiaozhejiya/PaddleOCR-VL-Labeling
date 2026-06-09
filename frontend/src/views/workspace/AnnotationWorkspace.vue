@@ -60,18 +60,12 @@ const isReadonly = computed(() => {
 })
 
 const updateSaveStatus = inject<((status: string) => void) | undefined>('updateSaveStatus')
-const updatePageTitle = inject<((title: string) => void) | undefined>('updatePageTitle')
 
 function syncWorkspaceMeta(status?: string) {
   if (status) {
     updateSaveStatus?.(status)
   } else {
     updateSaveStatus?.(isReadonly.value ? 'readonly' : 'saved')
-  }
-  if (page.value) {
-    updatePageTitle?.(page.value.filename)
-  } else {
-    updatePageTitle?.(t('routes.pages.workspace'))
   }
 }
 
@@ -253,12 +247,25 @@ async function loadWorkspace() {
       capabilities.value = { can_edit: false, can_review: false, can_export: false, can_manage: false }
     }
 
-    // 加载图片 URL（mock 模式下用 placeholder）
+    // 加载图片
     try {
-      const imgRes = await pagesApi.getImageUrl(page.value.page_id)
-      imageUrl.value = imgRes.url
+      const authHeaders = { Authorization: `Bearer ${sessionStorage.getItem('k12.access_token') || ''}` }
+      // 先获取图片访问 URL（返回 JSON { url, expires_at }）
+      const urlRes = await fetch(`/api/v1/pages/${page.value.page_id}/image`, { headers: authHeaders })
+      if (urlRes.ok) {
+        const { url } = await urlRes.json()
+        // 再用拿到的 URL 请求真实图片二进制
+        const imgRes = await fetch(url, { headers: authHeaders })
+        if (imgRes.ok) {
+          const blob = await imgRes.blob()
+          imageUrl.value = URL.createObjectURL(blob)
+        } else {
+          imageUrl.value = `https://placehold.co/${page.value.width}x${page.value.height}/f8f8f8/333?text=${encodeURIComponent(page.value.filename)}`
+        }
+      } else {
+        imageUrl.value = `https://placehold.co/${page.value.width}x${page.value.height}/f8f8f8/333?text=${encodeURIComponent(page.value.filename)}`
+      }
     } catch {
-      // mock 模式没有真实图片，用 placeholder
       imageUrl.value = `https://placehold.co/${page.value.width}x${page.value.height}/f8f8f8/333?text=${encodeURIComponent(page.value.filename)}`
     }
 

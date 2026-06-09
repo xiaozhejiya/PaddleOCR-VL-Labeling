@@ -21,7 +21,6 @@ export default {
     redo_action: '重做',
     undo_action: '撤销',
     searchPlaceholder: '搜索项目、任务、文件等',
-    shortcutHint: '⌘K',
   },
   app: {
     logoName: '数据标注平台',
@@ -169,6 +168,9 @@ export default {
     failed: '上传失败',
     selectFiles: '选择文件',
     startUpload: '开始上传',
+    dropHere: '松开鼠标上传文件',
+    dragHint: '支持拖拽图片文件，或点击选择',
+    deleteConfirm: '确定删除此页面？此操作不可撤销。',
   },
   routes: {
     auth: {

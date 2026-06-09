@@ -21,7 +21,6 @@ export default {
     redo_action: 'Redo',
     undo_action: 'Undo',
     searchPlaceholder: 'Search projects, tasks, files...',
-    shortcutHint: '⌘K',
   },
   app: {
     logoName: 'Data Labeling',
@@ -169,6 +168,9 @@ export default {
     failed: 'Upload failed',
     selectFiles: 'Select files',
     startUpload: 'Start Upload',
+    dropHere: 'Release to upload files',
+    dragHint: 'Drag image files here, or click to select',
+    deleteConfirm: 'Are you sure you want to delete this page? This action cannot be undone.',
   },
   routes: {
     auth: {
