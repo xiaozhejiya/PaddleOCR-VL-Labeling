@@ -105,6 +105,7 @@ export async function fetchWithAuth(input: string, init: RequestInit = {}): Prom
   return fetch(input, {
     ...init,
     headers,
+    credentials: init.credentials ?? 'include',
   })
 }
 
@@ -123,6 +124,7 @@ async function request<T>(
   const config: RequestInit = {
     ...options,
     headers: withAuthorizationHeader(baseHeaders),
+    credentials: options.credentials ?? 'include',
   }
 
   try {

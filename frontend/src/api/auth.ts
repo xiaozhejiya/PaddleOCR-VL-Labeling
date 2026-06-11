@@ -1,8 +1,8 @@
 /**
  * 认证相关 API
- * 后端：POST /auth/login, GET /auth/me
+ * 后端：POST /auth/login, POST /auth/logout, GET /auth/me
  */
-import { api, setToken, clearToken } from './client'
+import { api, clearToken } from './client'
 
 /** 后端 AuthenticatedUser */
 export interface User {
@@ -19,8 +19,6 @@ export interface LoginRequest {
 
 /** 后端 LoginResponse */
 export interface LoginResponse {
-  access_token: string
-  token_type: string
   expires_in: number
   user: User
 }
@@ -41,20 +39,18 @@ export const authApi = {
     return adaptUser(raw)
   },
 
-  /** 登录，成功后自动存储 token */
+  /** 登录，成功后由 HttpOnly Cookie 持久化会话 */
   login: async (data: LoginRequest) => {
     const res = await api.post<LoginResponse>('/auth/login', data)
-    setToken(res.access_token)
     return {
-      access_token: res.access_token,
-      token_type: res.token_type,
       expires_in: res.expires_in,
       user: adaptUser(res.user),
     }
   },
 
-  /** 登出（清空本地 token） */
+  /** 登出（清空服务端 Cookie 会话） */
   logout: async () => {
+    await api.post<void>('/auth/logout')
     clearToken()
   },
 }

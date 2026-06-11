@@ -4,7 +4,7 @@
  */
 import { ref, readonly } from 'vue'
 import { authApi, type User } from '@/api/auth'
-import { ApiClientError, getToken, clearToken } from '@/api/client'
+import { ApiClientError, clearToken } from '@/api/client'
 
 const user = ref<User | null>(null)
 const loading = ref(false)
@@ -17,13 +17,6 @@ export function useAuth() {
    * 401 时静默清空用户态，不抛异常
    */
   async function fetchUser(): Promise<User | null> {
-    // 无 token 则跳过请求
-    if (!getToken()) {
-      user.value = null
-      initialized.value = true
-      return null
-    }
-
     if (loading.value) {
       return user.value
     }
@@ -40,7 +33,7 @@ export function useAuth() {
         initialized.value = true
         return null
       }
-      // 其他错误（网络、5xx 等）保留 token 和用户态，让后续有机会重试
+      // 其他错误（网络、5xx 等）保留当前用户态，让后续有机会重试
       return user.value
     } finally {
       loading.value = false
@@ -55,8 +48,8 @@ export function useAuth() {
     loading.value = true
     try {
       const response = await authApi.login({ username, password })
-      // token 已在 authApi.login 中通过 setToken 存储
       user.value = response.user
+      initialized.value = true
       return response.user
     } finally {
       loading.value = false
@@ -82,7 +75,7 @@ export function useAuth() {
    * 是否已登录
    */
   function isAuthenticated(): boolean {
-    return Boolean(getToken())
+    return user.value !== null
   }
 
   /**
@@ -90,17 +83,11 @@ export function useAuth() {
    * 路由守卫调用，避免每次都请求后端
    */
   async function ensureSession(): Promise<boolean> {
-    if (!getToken()) {
-      user.value = null
-      initialized.value = true
-      return false
-    }
-
     if (!initialized.value && !loading.value) {
-      void fetchUser()
+      await fetchUser()
     }
 
-    return true
+    return isAuthenticated()
   }
 
   return {

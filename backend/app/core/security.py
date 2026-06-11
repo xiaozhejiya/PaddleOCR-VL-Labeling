@@ -11,7 +11,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -116,17 +116,22 @@ def verify_password(password: str, password_hash: str | None) -> bool:
 
 
 def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: Session = Depends(get_db_session),
 ) -> User:
-    """把 Bearer token 解析为有效且未软删除的当前用户。"""
+    """把 Cookie 会话或 Bearer token 解析为有效且未软删除的当前用户。"""
 
-    if credentials is None or credentials.scheme.lower() != "bearer":
+    token = request.cookies.get(get_settings().auth_cookie_name)
+    if token is None and credentials is not None and credentials.scheme.lower() == "bearer":
+        token = credentials.credentials
+
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing bearer token.",
+            detail="Missing authentication token.",
         )
-    payload = decode_access_token(credentials.credentials)
+    payload = decode_access_token(token)
     subject = payload.get("sub")
     if not isinstance(subject, str) or not subject.isdigit():
         raise HTTPException(
@@ -147,6 +152,30 @@ def get_current_user(
             detail="User is not active.",
         )
     return user
+
+
+def set_auth_cookie(response: Response, token: str) -> None:
+    settings = get_settings()
+    response.set_cookie(
+        key=settings.auth_cookie_name,
+        value=token,
+        max_age=settings.jwt_expire_minutes * 60,
+        httponly=True,
+        secure=settings.auth_cookie_secure,
+        samesite=settings.auth_cookie_samesite,
+        path="/",
+    )
+
+
+def clear_auth_cookie(response: Response) -> None:
+    settings = get_settings()
+    response.delete_cookie(
+        key=settings.auth_cookie_name,
+        httponly=True,
+        secure=settings.auth_cookie_secure,
+        samesite=settings.auth_cookie_samesite,
+        path="/",
+    )
 
 
 def require_project_capability(capability: str) -> Callable[..., User]:

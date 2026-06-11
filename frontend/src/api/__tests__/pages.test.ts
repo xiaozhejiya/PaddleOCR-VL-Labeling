@@ -70,6 +70,7 @@ describe('pagesApi', () => {
     expect(result).toBe('blob:test-url')
     expect(mockFetch).toHaveBeenNthCalledWith(1, '/api/v1/pages/page_1/image', expect.any(Object))
     expect(mockFetch).toHaveBeenNthCalledWith(2, '/signed/image', {
+      credentials: 'include',
       headers: { Authorization: 'Bearer token_123' },
     })
     expect(createObjectURL).toHaveBeenCalledWith(blob)

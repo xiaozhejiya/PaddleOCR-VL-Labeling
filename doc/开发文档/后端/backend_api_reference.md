@@ -157,8 +157,6 @@ Content-Type: application/json
 
 ```json
 {
-  "access_token": "jwt_token",
-  "token_type": "bearer",
   "expires_in": 86400,
   "user": {
     "id": 1,
@@ -168,16 +166,31 @@ Content-Type: application/json
 }
 ```
 
+如果页面存在但尚未产生任何标注 revision，也返回成功响应：
+
+```json
+{
+  "data": null,
+  "request_id": "req_xxx"
+}
+```
+
 响应字段：
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `access_token` | string | Bearer JWT。 |
-| `token_type` | string | 当前固定为 `bearer`。 |
-| `expires_in` | integer | token 有效期，单位秒，由 `JWT_EXPIRE_MINUTES` 决定。 |
+| `expires_in` | integer | Cookie 会话有效期，单位秒，由 `JWT_EXPIRE_MINUTES` 决定。 |
 | `user.id` | integer | 用户数据库内部主键。 |
 | `user.username` | string | 登录用户名。 |
 | `user.display_name` | string | 用户显示名称。 |
+
+Cookie：
+
+```text
+1. 登录成功后，后端会通过 Set-Cookie 写入 HttpOnly 会话 Cookie。
+2. 前端不得读取该 Cookie，后续请求需显式设置 credentials: 'include'。
+3. 当前后端仍兼容 Bearer JWT，但浏览器前端默认走 Cookie 会话。
+```
 
 错误：
 
@@ -186,14 +199,28 @@ Content-Type: application/json
 | `401` | 用户名或密码错误、账号不可用或已软删除。 |
 | `422` | 请求体字段缺失或类型不合法。 |
 
-### 4.2 获取当前用户
+### 4.2 用户登出
+
+```http
+POST /api/v1/auth/logout
+```
+
+鉴权：不强制要求已登录；接口会主动清除会话 Cookie。
+
+成功响应：
+
+```text
+HTTP 204 No Content
+```
+
+### 4.3 获取当前用户
 
 ```http
 GET /api/v1/auth/me
-Authorization: Bearer <access_token>
+Cookie: k12_access_token=...
 ```
 
-鉴权：需要登录。
+鉴权：需要登录。浏览器前端默认通过 HttpOnly Cookie 会话鉴权，也兼容 Bearer JWT。
 
 成功响应：
 
@@ -535,6 +562,7 @@ Authorization: Bearer <access_token>
 | `sha256` | string/null | revision JSON 文件 SHA-256。 |
 | `size_bytes` | integer/null | revision JSON 文件大小。 |
 | `annotation_json` | object | 整页标注 JSON。 |
+| `data` | object/null | 页面已有 latest revision 时返回 revision 数据；尚无 revision 时返回 `null`。 |
 
 错误：
 
@@ -542,7 +570,7 @@ Authorization: Bearer <access_token>
 |---|---|
 | `401` | token 缺失、无效或已过期。 |
 | `403` | 缺少 `can_view_project`。 |
-| `404` | 页面不存在，或页面还没有标注 revision。 |
+| `404` | 页面不存在。 |
 | `500` | 标注 JSON 资产缺失或读取失败。 |
 
 ### 7.5 创建页面标注版本
@@ -707,7 +735,7 @@ M4 页面与标注 revision 接口当前使用的业务错误 code：
 | code | HTTP 状态码 | 场景 |
 |---|---|---|
 | `PAGE_NOT_FOUND` | `404` | 页面不存在。 |
-| `ANNOTATION_REVISION_NOT_FOUND` | `404` | 页面还没有标注版本，或 revision 不存在。 |
+| `ANNOTATION_REVISION_NOT_FOUND` | `404` | 指定 revision 不存在。 |
 | `VALIDATION_ERROR` | `422` | 标注 JSON、几何、read_order 或 relation 业务校验失败。 |
 | `REVISION_CONFLICT` | `409` | `base_revision_id` 缺失或不是当前 latest。 |
 | `STORAGE_ERROR` | `500` | 标注 JSON 文件写入或读取失败。 |

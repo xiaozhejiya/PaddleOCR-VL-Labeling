@@ -22,7 +22,5 @@ class AuthenticatedUser(BaseModel):
 class LoginResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    access_token: str = Field(..., title="访问令牌", description="Bearer JWT。")
-    token_type: str = Field(default="bearer", title="令牌类型")
     expires_in: int = Field(..., title="过期秒数", description="访问令牌有效期。")
     user: AuthenticatedUser = Field(..., title="当前用户")

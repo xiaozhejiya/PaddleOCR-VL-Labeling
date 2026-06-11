@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -42,6 +43,18 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = Field(
         default=1440,
         validation_alias="JWT_EXPIRE_MINUTES",
+    )
+    auth_cookie_name: str = Field(
+        default="k12_access_token",
+        validation_alias="AUTH_COOKIE_NAME",
+    )
+    auth_cookie_secure: bool = Field(
+        default=False,
+        validation_alias="AUTH_COOKIE_SECURE",
+    )
+    auth_cookie_samesite: Literal["lax", "strict", "none"] = Field(
+        default="lax",
+        validation_alias="AUTH_COOKIE_SAMESITE",
     )
 
     paddleocr_vl_enabled: bool = Field(
