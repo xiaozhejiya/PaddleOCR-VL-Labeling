@@ -21,7 +21,7 @@ interface AnnotationRevisionData {
 
 /** 后端包装响应 */
 interface AnnotationRevisionResponse {
-  data: AnnotationRevisionData
+  data: AnnotationRevisionData | null
   request_id: string
 }
 
@@ -68,8 +68,11 @@ export interface AnnotationDraft {
 }
 
 /** 将后端 AnnotationRevisionData 解包为前端 AnnotationRevision */
-function unwrapRevision(res: AnnotationRevisionResponse): AnnotationRevision {
+function unwrapRevision(res: AnnotationRevisionResponse): AnnotationRevision | null {
   const d = res.data
+  if (!d) {
+    return null
+  }
   return {
     id: d.revision_id,
     page_id: d.page_id,
@@ -80,9 +83,17 @@ function unwrapRevision(res: AnnotationRevisionResponse): AnnotationRevision {
   }
 }
 
+function unwrapRequiredRevision(res: AnnotationRevisionResponse): AnnotationRevision {
+  const revision = unwrapRevision(res)
+  if (!revision) {
+    throw new Error('Annotation revision response data is unexpectedly null.')
+  }
+  return revision
+}
+
 export const annotationsApi = {
-  /** 获取页面最新标注（解包 { data, request_id } → AnnotationRevision） */
-  getLatest: async (pageId: string): Promise<AnnotationRevision> => {
+  /** 获取页面最新标注；页面尚无标注时返回 null */
+  getLatest: async (pageId: string): Promise<AnnotationRevision | null> => {
     const res = await api.get<AnnotationRevisionResponse>(`/pages/${pageId}/annotation/latest`)
     return unwrapRevision(res)
   },
@@ -92,7 +103,7 @@ export const annotationsApi = {
     const res = await api.get<AnnotationRevisionResponse>(
       `/pages/${pageId}/annotation/revisions/${revisionId}`,
     )
-    return unwrapRevision(res)
+    return unwrapRequiredRevision(res)
   },
 
   /** 列出页面所有 revisions（只返回元数据，不包含 annotation_json） */
@@ -141,6 +152,6 @@ export const annotationsApi = {
       `/pages/${pageId}/annotation/revisions`,
       payload,
     )
-    return unwrapRevision(res)
+    return unwrapRequiredRevision(res)
   },
 }

@@ -224,7 +224,7 @@ def test_read_page_endpoint_maps_missing_page_to_error_response(
     )
 
 
-def test_latest_annotation_endpoint_maps_missing_revision_to_404(
+def test_latest_annotation_endpoint_returns_null_when_page_has_no_revision(
     monkeypatch: Any,
 ) -> None:
     app = create_test_app(monkeypatch)
@@ -238,12 +238,9 @@ def test_latest_annotation_endpoint_maps_missing_revision_to_404(
 
     response = request(app, "GET", "/api/v1/pages/page_public_001/annotation/latest")
 
-    assert_error_response(
-        response,
-        status_code=404,
-        code="ANNOTATION_REVISION_NOT_FOUND",
-        message_contains="还没有标注版本",
-    )
+    assert response.status_code == 200
+    assert response.json()["data"] is None
+    assert response.json()["request_id"].startswith("req_")
 
 
 def test_specific_annotation_revision_endpoint_returns_revision(

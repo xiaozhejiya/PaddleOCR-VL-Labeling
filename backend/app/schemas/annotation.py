@@ -38,7 +38,9 @@ class AnnotationRevisionReadData(BaseModel):
 class AnnotationRevisionResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    data: AnnotationRevisionReadData = Field(..., title="标注版本")
+    data: AnnotationRevisionReadData | None = Field(
+        ..., title="标注版本", description="页面尚无标注版本时返回 null。"
+    )
     request_id: str = Field(..., title="请求编号", description="本次请求的追踪编号。")
 
 

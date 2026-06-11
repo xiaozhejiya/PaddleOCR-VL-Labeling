@@ -395,16 +395,10 @@ async function loadWorkspace() {
       imageUrl.value = nextImageUrl
     }
 
-    // 加载标注
-    try {
-      if (revisionId.value) {
-        revision.value = await annotationsApi.getRevision(pageId.value, revisionId.value)
-      } else {
-        revision.value = await annotationsApi.getLatest(pageId.value)
-      }
-    } catch (e) {
-      if (e instanceof ApiClientError && e.status === 404) revision.value = null
-    }
+    // latest 接口在页面尚无标注时返回 null，避免制造无意义的 404 噪音。
+    revision.value = revisionId.value
+      ? await annotationsApi.getRevision(pageId.value, revisionId.value)
+      : await annotationsApi.getLatest(pageId.value)
 
     // 加载 QC
     try {

@@ -257,12 +257,10 @@ def read_latest_annotation_revision(
     )
     try:
         result = get_latest_annotation_revision(db=db, page_public_id=page_id)
-    except AnnotationRevisionNotFoundError as exc:
-        return _error_response(
-            status_code=status.HTTP_404_NOT_FOUND,
-            code="ANNOTATION_REVISION_NOT_FOUND",
-            message=str(exc),
-            details={"page_id": page_id},
+    except AnnotationRevisionNotFoundError:
+        return AnnotationRevisionResponse(
+            data=None,
+            request_id=new_public_id("req"),
         )
     except StorageError as exc:
         return _error_response(
