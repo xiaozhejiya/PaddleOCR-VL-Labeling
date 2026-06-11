@@ -58,11 +58,16 @@ export const assetsApi = {
     onProgress: (percent: number) => void,
   ): { promise: Promise<AssetUploadResponse>; abort: () => void } => {
     const xhr = new XMLHttpRequest()
+    xhr.timeout = 30000 // 30 秒超时
     const promise = new Promise<AssetUploadResponse>((resolve, reject) => {
       xhr.upload.onprogress = (e) => {
         if (e.lengthComputable) {
           onProgress(Math.round((e.loaded / e.total) * 100))
         }
+      }
+
+      xhr.ontimeout = () => {
+        reject(new ApiClientError({ message: 'errors.network', status: 0 }))
       }
 
       xhr.onload = () => {
@@ -91,6 +96,7 @@ export const assetsApi = {
       formData.append('file', file)
 
       xhr.open('POST', `/api/v1/projects/${projectId}/assets/upload`)
+      xhr.withCredentials = true
       const authHeader = getAuthorizationHeader()
       if (authHeader) {
         xhr.setRequestHeader('Authorization', authHeader)
