@@ -1,7 +1,7 @@
 # 后端接口文档
 
-版本：v0.1
-日期：2026-06-09
+版本：v0.3
+日期：2026-06-13
 用途：记录当前后端已经实现、可用于前后端联调的 API 契约。规划中但尚未实现的接口继续以 `k12_annotation_platform_backend_design.md` 为准。
 
 ## 目录
@@ -46,6 +46,7 @@
 
 | 版本 | 日期 | 说明 |
 |---|---|---|
+| v0.3 | 2026-06-13 | 收敛认证、响应包装和临时接口说明，明确 Cookie/CSRF、页面删除和响应格式待规范化边界。 |
 | v0.2 | 2026-06-11 | 补齐 projects、project pages、project capabilities、page delete、revision list/detail 和 page QC 已实现接口。 |
 | v0.1 | 2026-06-09 | 初版接口文档，补充 auth、health、assets、pages 和 annotation revision 已实现接口。 |
 
@@ -87,20 +88,28 @@ GET /redoc
 ```text
 1. JSON 请求和响应默认使用 UTF-8。
 2. 文件上传接口使用 multipart/form-data。
-3. 成功响应通常使用 { "data": ..., "request_id": "req_xxx" } 包装。
-4. 登录和当前用户接口直接返回认证 schema，不使用 data 包装。
+3. 规范目标是成功响应使用 { "data": ..., "request_id": "req_xxx" } 包装。
+4. 登录、健康检查、项目列表、项目详情、项目能力、项目标签、revision 列表和 QC 列表等接口当前仍存在未统一包装的响应，前端应按本文逐接口处理；后续需要按 backend_development_spec.md 收敛。
 5. M4 页面与标注 revision 业务错误已使用 `{ "error": ..., "request_id": "req_xxx" }` 包装；认证、权限和 FastAPI/Pydantic 自动校验错误仍可能返回默认 `detail`，后续通过全局 exception handler 收敛。
 ```
 
 ### 2.3 鉴权
 
-除 `POST /auth/login` 和 `GET /health` 外，当前业务接口均要求 Bearer token：
+除 `POST /auth/login` 和 `GET /health` 外，当前业务接口均要求已认证会话。
+
+浏览器前端默认使用登录接口写入的 HttpOnly Cookie：
+
+```http
+Cookie: k12_access_token=...
+```
+
+非浏览器调用和兼容场景可继续使用 Bearer token：
 
 ```http
 Authorization: Bearer <access_token>
 ```
 
-前端不得把 token 放入 URL query、local log、异常提示或可分享链接。
+前端不得把 token 放入 URL query、local log、异常提示或可分享链接。当前 Cookie 会话尚未实现专用 CSRF token 或双提交校验，生产化前需要按 `backend_development_spec.md` 补齐；当前限制见第 10 章。
 
 ### 2.4 ID 语义
 
@@ -121,7 +130,7 @@ Authorization: Bearer <access_token>
 | `can_upload_assets` | 上传图片资产 |
 | `can_view_project` | 读取项目页面列表、项目标签、页面详情、页面图片 URL、读取最新标注版本、列出页面标注版本、读取指定标注版本、读取页面 QC |
 | `can_create_annotation_revision` | 创建页面标注版本 |
-| `can_manage_project_members` | 删除页面 |
+| `can_manage_project_members` | 删除页面（临时实现，待收敛为页面/资产管理专用能力或移除） |
 
 ---
 
@@ -129,7 +138,7 @@ Authorization: Bearer <access_token>
 
 | 方法 | 路径 | 鉴权 | 状态 | 说明 |
 |---|---|---|---|---|
-| `POST` | `/api/v1/auth/login` | 否 | 已实现 | 用户登录，返回 Bearer JWT。 |
+| `POST` | `/api/v1/auth/login` | 否 | 已实现 | 用户登录，写入 HttpOnly Cookie 会话。 |
 | `GET` | `/api/v1/auth/me` | 是 | 已实现 | 获取当前登录用户。 |
 | `GET` | `/api/v1/health` | 否 | 已实现 | 数据库和 Redis 健康检查。 |
 | `GET` | `/api/v1/projects` | 是 | 已实现 | 获取当前用户创建的项目列表。 |
@@ -143,7 +152,7 @@ Authorization: Bearer <access_token>
 | `GET` | `/api/v1/projects/{project_id}/labels` | 是 | 已实现 | 获取项目标签注册表。 |
 | `POST` | `/api/v1/assets/upload` | 是 | 兼容入口 | M3 简化上传入口，project_id 放在 form 中。 |
 | `GET` | `/api/v1/pages/{page_id}` | 是 | 已实现 | 获取页面详情和图片元数据。 |
-| `DELETE` | `/api/v1/pages/{page_id}` | 是 | 已实现 | 删除页面。 |
+| `DELETE` | `/api/v1/pages/{page_id}` | 是 | 临时实现 | 删除页面；当前代码存在，但尚未按后端设计文档批准为长期契约。 |
 | `GET` | `/api/v1/pages/{page_id}/image` | 是 | 已实现 | 获取页面图片短期签名访问 URL。 |
 | `GET` | `/api/v1/pages/{page_id}/image/raw?exp=&sig=` | 否 | 已实现 | 读取页面图片文件；依赖短期签名 URL。 |
 | `GET` | `/api/v1/pages/{page_id}/annotation/latest` | 是 | 已实现 | 读取页面最新标注 revision。 |
@@ -778,6 +787,15 @@ Authorization: Bearer <access_token>
 
 鉴权：需要登录，并具备 `can_manage_project_members`。
 
+契约状态：
+
+```text
+1. 该接口是当前代码事实，记录在本文便于联调识别。
+2. 后端设计文档尚未批准页面删除 API，当前 capability 也不是页面/资产管理专用能力。
+3. 当前实现为物理删除，不符合后端开发规范中“删除数据默认软删除”的长期要求。
+4. 新前端不应依赖该接口作为正式产品能力；若需要保留，应先补设计文档、软删除或归档策略、审计和专用 capability。
+```
+
 当前行为：
 
 ```text
@@ -1237,8 +1255,12 @@ M4 页面与标注 revision 接口当前使用的业务错误 code：
 4. 当前标注 JSON 已要求 k12_annotations 字段存在；relations 仍允许缺失并按空数组处理。
 5. 当前没有 revision submit、lock、rollback、review、qc run 等流转接口。
 6. 当前页面图片访问已提供短期签名 URL；签名默认 5 分钟有效，raw 端点要求 exp 和 sig 校验通过。
-7. 当前认证、权限和 Pydantic 请求校验错误尚未统一包装 request_id；M4 页面与标注 revision 的业务错误已统一。
-8. 当前接口文档不替代自动生成的 OpenAPI；字段变化时两者都需要核对。
+7. 当前页面图片签名 URL 未绑定 user_id、session 或 nonce，拿到 URL 的客户端可在过期前重复访问；生产化前需要按 Signed URL 规范补齐重放防护。
+8. 当前 Cookie 会话尚未实现专用 CSRF token 或双提交校验；生产部署前必须补齐 CSRF 防护，或保持同源 SameSite 策略并在安全文档中明确边界。
+9. 当前项目、标签、capabilities、revision 列表和 QC 列表等接口尚未统一 `{data, request_id}` 响应包装，前端需要逐接口适配，后续应按 backend_development_spec.md 收敛。
+10. `DELETE /pages/{page_id}` 是临时实现，尚未按后端设计文档批准；当前为物理删除且复用 `can_manage_project_members`，后续应移除或补齐软删除、审计和专用 capability。
+11. 当前认证、权限和 Pydantic 请求校验错误尚未统一包装 request_id；M4 页面与标注 revision 的业务错误已统一。
+12. 当前接口文档不替代自动生成的 OpenAPI；字段变化时两者都需要核对。
 ```
 
 ---
