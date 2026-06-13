@@ -1,11 +1,17 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.core.security import create_access_token, get_current_user, verify_password
+from app.core.security import (
+    clear_auth_cookie,
+    create_access_token,
+    get_current_user,
+    set_auth_cookie,
+    verify_password,
+)
 from app.db.models import User
 from app.db.session import get_db_session
 from app.schemas.auth import AuthenticatedUser, LoginRequest, LoginResponse
@@ -14,7 +20,11 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/login", response_model=LoginResponse, summary="用户登录")
-def login(payload: LoginRequest, db: Session = Depends(get_db_session)) -> LoginResponse:
+def login(
+    payload: LoginRequest,
+    response: Response,
+    db: Session = Depends(get_db_session),
+) -> LoginResponse:
     user = db.scalar(
         select(User).where(
             User.username == payload.username,
@@ -31,15 +41,30 @@ def login(payload: LoginRequest, db: Session = Depends(get_db_session)) -> Login
         )
 
     settings = get_settings()
+    access_token = create_access_token(user_id=user.id)
+    set_auth_cookie(response, access_token)
     return LoginResponse(
-        access_token=create_access_token(user_id=user.id),
         expires_in=settings.jwt_expire_minutes * 60,
         user=AuthenticatedUser(
             id=user.id,
             username=user.username,
             display_name=user.display_name,
+            is_system_admin=user.is_system_admin,
         ),
     )
+
+
+@router.post(
+    "/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+    response_class=Response,
+    summary="用户登出",
+)
+def logout(response: Response) -> Response:
+    clear_auth_cookie(response)
+    response.status_code = status.HTTP_204_NO_CONTENT
+    return response
 
 
 @router.get("/me", response_model=AuthenticatedUser, summary="获取当前用户")
@@ -48,4 +73,5 @@ def read_current_user(current_user: User = Depends(get_current_user)) -> Authent
         id=current_user.id,
         username=current_user.username,
         display_name=current_user.display_name,
+        is_system_admin=current_user.is_system_admin,
     )

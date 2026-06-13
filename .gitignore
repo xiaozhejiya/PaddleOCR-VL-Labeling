@@ -22,3 +22,11 @@ htmlcov/
 # Local runtime artifacts
 data/
 logs/
+*.rdb
+
+
+backend/start.bat
+
+frontend/node_modules/
+frontend/dist/
+frontend/build/

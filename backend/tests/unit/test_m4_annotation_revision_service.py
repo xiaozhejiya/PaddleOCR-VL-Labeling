@@ -91,6 +91,7 @@ def test_build_revision_indexes_derives_geometry_and_read_order() -> None:
         [110, 120],
         [10, 120],
     ]
+    assert normalized_question["geometry"]["geometry_source"] == "auto_generated"
 
     assert result.annotation_objects[0] == {
         "ann_id": "ann_question_001",
@@ -320,6 +321,9 @@ class RecordingAnnotationJsonStorage:
         self.writes.append(asset)
         return asset
 
+    def read_revision_json(self, storage_path: str) -> dict[str, Any]:
+        return json.loads((self.root / storage_path).read_text(encoding="utf-8"))
+
     def remove_revision_json(self, storage_path: str) -> None:
         (self.root / storage_path).unlink(missing_ok=True)
 
@@ -330,6 +334,7 @@ class RecordingAnnotationRepository:
         self.revisions: list[Any] = []
         self.object_indexes: dict[str, list[dict[str, Any]]] = {}
         self.relation_indexes: dict[str, list[dict[str, Any]]] = {}
+        self.revision_assets: dict[str, StoredJsonAsset] = {}
 
     def get_page_context_by_public_id(self, _db: object, page_public_id: str) -> Any:
         assert page_public_id == "page_public_001"
@@ -350,6 +355,7 @@ class RecordingAnnotationRepository:
         self.latest_revision_no = kwargs["revision_no"]
         revision = type("RevisionRecord", (), kwargs)()
         self.revisions.append(revision)
+        self.revision_assets[revision.public_id] = kwargs["annotation_json_asset"]
         return revision
 
     def rebuild_indexes(
@@ -366,6 +372,11 @@ class RecordingAnnotationRepository:
     def get_latest_revision(self, _db: object, *, page_public_id: str) -> Any:
         assert page_public_id == "page_public_001"
         return self.revisions[-1] if self.revisions else None
+
+    def get_revision_asset(
+        self, _db: object, *, revision: Any
+    ) -> StoredJsonAsset | None:
+        return self.revision_assets.get(revision.public_id)
 
 
 def test_create_revision_appends_json_asset_and_increments_revision_no(
@@ -413,6 +424,51 @@ def test_create_revision_appends_json_asset_and_increments_revision_no(
         repository.get_latest_revision(object(), page_public_id="page_public_001")
         is second
     )
+    second_revision_json = storage.read_revision_json(storage.writes[1].storage_path)
+    assert [item["revision_no"] for item in second_revision_json["history"]] == [1, 2]
+    assert second_revision_json["history"][0]["revision_id"] == first.public_id
+    assert second_revision_json["history"][1]["parent_revision_id"] == first.public_id
+
+
+def test_create_revision_ignores_client_supplied_history_when_appending_revision_chain(
+    tmp_path: Path,
+) -> None:
+    annotation_service = load_annotation_service()
+    repository = RecordingAnnotationRepository()
+    storage = RecordingAnnotationJsonStorage(tmp_path)
+
+    first = annotation_service.create_annotation_revision(
+        db=object(),
+        page_public_id="page_public_001",
+        annotation_json=sample_annotation_json(),
+        created_by=99,
+        repository=repository,
+        storage=storage,
+    )
+    forged_second_json = sample_annotation_json()
+    forged_second_json["history"] = [
+        {
+            "revision_id": "rev_fake_001",
+            "revision_no": 999,
+            "parent_revision_id": "rev_fake_000",
+        }
+    ]
+
+    second = annotation_service.create_annotation_revision(
+        db=object(),
+        page_public_id="page_public_001",
+        annotation_json=forged_second_json,
+        created_by=99,
+        repository=repository,
+        storage=storage,
+        base_revision_id=first.public_id,
+    )
+
+    second_revision_json = storage.read_revision_json(storage.writes[1].storage_path)
+    assert [item["revision_id"] for item in second_revision_json["history"]] == [
+        first.public_id,
+        second.public_id,
+    ]
 
 
 def test_create_revision_rejects_missing_base_revision_when_latest_exists(

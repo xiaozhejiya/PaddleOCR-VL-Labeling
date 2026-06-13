@@ -62,6 +62,7 @@ doc/开发文档/前端/frontend_component_library_spec.md
 | v0.6 | 2026-05-27 | 修正路由总规范口径：未知路径统一进入 404；项目任务和导出改为项目详情 tab URL 示例，避免误写为 route path。 |
 | v0.7 | 2026-05-29 | 恢复 MCP 浏览器联调测试规范章节；移除对 demo 文档的依赖引用。 |
 | v0.8 | 2026-06-03 | 收紧中文提交信息、中文注释、中文日志和中文错误文案要求，统一引用提交规范文档。 |
+| v0.9 | 2026-06-09 | 同步后端 API 响应格式（{ data, request_id } 包装与解包），更新画布渲染架构为固定视口 Canvas 矩阵渲染，补充页面导航规范。 |
 
 ---
 
@@ -263,7 +264,8 @@ frontend/
       useTheme.ts
       usePaginatedList.ts
       useAnnotationDraft.ts
-      useCanvasViewport.ts
+      useCanvasRenderer.ts        # 固定视口 Canvas 矩阵渲染器（DPR、setTransform、坐标反算）
+      useAnnotationStore.ts       # 标注对象草稿状态管理（增删改、撤销重做）
     components/
       base/
       layout/
@@ -503,9 +505,29 @@ API 前缀：/api/v1
 
 ### 7.3 响应和错误处理
 
-前端 API client 必须把 HTTP 错误和业务错误统一转换为可识别的 Error 对象。
+后端 M4 已实现接口使用 `{ "data": ..., "request_id": "req_xxx" }` 包装成功响应。前端 API 层必须在返回给调用方前解包 `data` 字段，页面组件不得直接操作带包装的原始响应。
 
-统一错误对象字段：
+响应解包要求：
+
+```text
+1. src/api/*.ts 中每个资源模块定义后端原始响应类型（如 PageReadResponse）和前端使用类型（如 Page）。
+2. 提供 unwrap 函数将 { data, request_id } 解包为前端类型，同时扁平化嵌套字段（如 data.image.width → width）。
+3. request_id 不传给页面组件，仅在错误对象中保留用于排查。
+4. 如果后端接口尚未使用 data 包装（如登录、健康检查），前端直接使用原始响应类型。
+```
+
+前端 API 模块结构示例：
+
+```text
+src/api/pages.ts
+  - PageReadData          后端 data 字段类型
+  - PageReadResponse      后端 { data, request_id } 类型
+  - Page                  前端解包后类型
+  - unwrapPage()          解包函数
+  - pagesApi.get()        调用 unwrapPage 后返回 Page
+```
+
+错误对象字段：
 
 ```text
 message      中文可展示错误文案，来自本地 i18n 映射或后端中文兜底 message
@@ -879,14 +901,29 @@ polygon
 4. 图片加载失败应显示可操作错误，不应让画布空白。
 ```
 
-标注画布基础要求：
+标注画布基础要求（固定视口 Canvas 矩阵渲染架构）：
 
 ```text
-1. 支持缩放和平移。
-2. 坐标换算必须稳定。
-3. overlay 层级必须明确区分 raw candidate、manual annotation、selected object、QC error。
-4. 画布尺寸、图片尺寸和缩放比例必须可调试。
-5. 大图和多对象页面必须避免全量无意义重渲染。
+1. Canvas 物理尺寸和 CSS 尺寸在初始化时锁定（如 800×600），绝不因图片尺寸动态改变。
+2. 物理尺寸 = 逻辑尺寸 × devicePixelRatio，保证高清屏清晰。
+3. 使用 ctx.setTransform(dpr*s, 0, 0, dpr*s, dpr*ox, dpr*oy) 一次性设置矩阵绘制图片，禁止 ctx.scale()/translate() 累积。
+4. 绘制图片后重置矩阵 ctx.setTransform(dpr, 0, 0, dpr, 0, 0)，再叠加绘制标注 UI。
+5. 坐标反算公式：imgX = (screenX - offsetX) / scale，screenX 为鼠标相对 Canvas 左上角的 CSS 像素偏移。
+6. SVG overlay 的 viewBox 与 Canvas 逻辑尺寸一致，标注坐标通过 imageToViewport() 转换后直接对应 SVG 坐标系。
+7. 大图和多对象页面必须避免全量无意义重渲染。
+```
+
+渲染器 composable：
+
+```text
+src/composables/useCanvasRenderer.ts
+  - initCanvas(canvas)       锁定 Canvas 尺寸（含 DPR），返回 DPR 值
+  - loadImage(url)           加载图片，设置 imageSize 和 imageSource，不触碰 Canvas 尺寸
+  - render(canvas, drawUI?)  矩阵渲染图片 + 重置后绘制 UI
+  - screenToImage(sx, sy)    鼠标坐标 → 原图像素坐标（逆矩阵）
+  - imageToViewport(ix, iy)  原图坐标 → 视口坐标（用于 SVG overlay）
+  - zoomAt(delta, cx, cy)    以指定视口坐标为中心锚点缩放
+  - fitToContainer()         等比适配固定视口（留 5% 边距）
 ```
 
 完整画布交互、快捷键、对象选择、拖拽、调整、撤销重做、read_order、关系连线和 QC 定位规则应进入：

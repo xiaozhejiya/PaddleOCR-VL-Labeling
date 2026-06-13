@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import delete, desc, select
+from sqlalchemy import delete, desc, func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -81,6 +81,33 @@ class SqlAlchemyAnnotationRepository:
         self, db: Session, *, revision: AnnotationRevision
     ) -> Asset | None:
         return db.get(Asset, revision.annotation_json_asset_id)
+
+    def list_revisions(
+        self,
+        db: Session,
+        *,
+        page_public_id: str,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[AnnotationRevision], int]:
+        count_stmt = (
+            select(func.count())
+            .select_from(AnnotationRevision)
+            .join(Page, Page.id == AnnotationRevision.page_id)
+            .where(Page.public_id == page_public_id)
+        )
+        total = int(db.scalar(count_stmt) or 0)
+
+        stmt = (
+            select(AnnotationRevision)
+            .join(Page, Page.id == AnnotationRevision.page_id)
+            .where(Page.public_id == page_public_id)
+            .order_by(desc(AnnotationRevision.revision_no))
+            .limit(limit)
+            .offset(offset)
+        )
+        rows = db.scalars(stmt).all()
+        return rows, total
 
     def create_revision(
         self,

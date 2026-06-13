@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict, Field
+
+
+# ── 上游 M4 schemas（页面详情 API 响应） ──
 
 
 class PageImageRead(BaseModel):
@@ -46,3 +51,25 @@ class PageReadResponse(BaseModel):
 
     data: PageReadData = Field(..., title="页面详情")
     request_id: str = Field(..., title="请求编号", description="本次请求的追踪编号。")
+
+
+# ── 项目页面列表 schemas ──
+
+
+class PageOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    page_id: str
+    project_id: int
+    filename: str
+    status: str
+    width: int
+    height: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class PageListOut(BaseModel):
+    items: list[PageOut]
+    total: int

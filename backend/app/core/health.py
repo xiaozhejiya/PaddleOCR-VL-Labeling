@@ -1,10 +1,14 @@
 from typing import Any
 
-from redis import Redis
 from sqlalchemy import text
 
 from app.core.config import get_settings, is_missing_or_placeholder
 from app.db.session import engine
+
+try:
+    from redis import Redis
+except ModuleNotFoundError:  # pragma: no cover - 依赖缺失仅在精简测试环境出现
+    Redis = None  # type: ignore[assignment]
 
 
 def database_health() -> dict[str, Any]:
@@ -26,6 +30,8 @@ def redis_health() -> dict[str, Any]:
     settings = get_settings()
     if is_missing_or_placeholder(settings.redis_url):
         return {"status": "not_configured"}
+    if Redis is None:
+        return {"status": "not_installed"}
 
     client: Redis | None = None
     try:

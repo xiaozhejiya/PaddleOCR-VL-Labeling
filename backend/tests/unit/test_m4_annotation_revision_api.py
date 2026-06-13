@@ -1,18 +1,19 @@
 """M4 页面与标注 revision API 合同测试。
 
 覆盖事项：
-1. v1 router 必须注册页面详情和标注 revision 的三个 MVP 入口。
+1. v1 router 必须注册页面详情和标注 revision 的四个 MVP 入口。
 2. API path 中的 page_id 表示 pages.public_id，而不是数据库内部主键。
 3. 后续实现 endpoint 时，业务行为由 service 测试覆盖；本文件先锁住路由合同。
 """
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
+import httpx
 import pytest
 from fastapi import HTTPException, status
-from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints import pages as pages_endpoint
 from app.db.models import User
@@ -32,7 +33,7 @@ def route_methods_by_path() -> dict[str, set[str]]:
         path = getattr(route, "path", "")
         methods = getattr(route, "methods", None)
         if methods:
-            result[path] = set(methods)
+            result.setdefault(path, set()).update(set(methods))
     return result
 
 
@@ -41,6 +42,13 @@ def test_m4_page_and_annotation_revision_routes_are_registered() -> None:
 
     assert "/api/v1/pages/{page_id}" in routes
     assert "GET" in routes["/api/v1/pages/{page_id}"]
+    assert "DELETE" in routes["/api/v1/pages/{page_id}"]
+
+    assert "/api/v1/pages/{page_id}/image" in routes
+    assert "GET" in routes["/api/v1/pages/{page_id}/image"]
+
+    assert "/api/v1/pages/{page_id}/image/raw" in routes
+    assert "GET" in routes["/api/v1/pages/{page_id}/image/raw"]
 
     assert "/api/v1/pages/{page_id}/annotation/latest" in routes
     assert "GET" in routes["/api/v1/pages/{page_id}/annotation/latest"]
@@ -48,13 +56,19 @@ def test_m4_page_and_annotation_revision_routes_are_registered() -> None:
     assert "/api/v1/pages/{page_id}/annotation/revisions" in routes
     assert "POST" in routes["/api/v1/pages/{page_id}/annotation/revisions"]
 
+    assert "/api/v1/pages/{page_id}/annotation/revisions/{revision_id}" in routes
+    assert "GET" in routes["/api/v1/pages/{page_id}/annotation/revisions/{revision_id}"]
+
 
 def test_m4_routes_use_public_page_id_name() -> None:
     routes = route_methods_by_path()
     m4_paths = {
         "/api/v1/pages/{page_id}",
+        "/api/v1/pages/{page_id}/image",
+        "/api/v1/pages/{page_id}/image/raw",
         "/api/v1/pages/{page_id}/annotation/latest",
         "/api/v1/pages/{page_id}/annotation/revisions",
+        "/api/v1/pages/{page_id}/annotation/revisions/{revision_id}",
     }
 
     assert m4_paths.issubset(routes)
@@ -88,6 +102,7 @@ def sample_revision_result() -> dict[str, Any]:
         (),
         {
             "public_id": "rev_public_001",
+            "page_id": 30,
             "revision_no": 1,
             "status": "draft",
             "qc_status": "pending",
@@ -113,7 +128,7 @@ def sample_revision_result() -> dict[str, Any]:
     }
 
 
-def create_test_client(monkeypatch: Any) -> TestClient:
+def create_test_app(monkeypatch: Any):
     app = create_app()
     app.dependency_overrides[pages_endpoint.get_current_user] = lambda: User(
         id=99,
@@ -132,7 +147,19 @@ def create_test_client(monkeypatch: Any) -> TestClient:
         "get_page_detail",
         lambda **_kwargs: sample_page_context(),
     )
-    return TestClient(app)
+    return app
+
+
+def request(app: Any, method: str, path: str, **kwargs: Any) -> httpx.Response:
+    async def _send() -> httpx.Response:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://testserver",
+        ) as client:
+            return await client.request(method, path, **kwargs)
+
+    return asyncio.run(_send())
 
 
 def assert_error_response(
@@ -153,9 +180,9 @@ def assert_error_response(
 
 
 def test_read_page_endpoint_returns_page_metadata(monkeypatch: Any) -> None:
-    client = create_test_client(monkeypatch)
+    app = create_test_app(monkeypatch)
 
-    response = client.get("/api/v1/pages/page_public_001")
+    response = request(app, "GET", "/api/v1/pages/page_public_001")
 
     assert response.status_code == 200
     assert response.json()["data"] == {
@@ -178,7 +205,7 @@ def test_read_page_endpoint_returns_page_metadata(monkeypatch: Any) -> None:
 def test_read_page_endpoint_maps_missing_page_to_error_response(
     monkeypatch: Any,
 ) -> None:
-    client = create_test_client(monkeypatch)
+    app = create_test_app(monkeypatch)
     monkeypatch.setattr(
         pages_endpoint,
         "get_page_detail",
@@ -187,7 +214,7 @@ def test_read_page_endpoint_maps_missing_page_to_error_response(
         ),
     )
 
-    response = client.get("/api/v1/pages/page_missing")
+    response = request(app, "GET", "/api/v1/pages/page_missing")
 
     assert_error_response(
         response,
@@ -197,10 +224,10 @@ def test_read_page_endpoint_maps_missing_page_to_error_response(
     )
 
 
-def test_latest_annotation_endpoint_maps_missing_revision_to_404(
+def test_latest_annotation_endpoint_returns_null_when_page_has_no_revision(
     monkeypatch: Any,
 ) -> None:
-    client = create_test_client(monkeypatch)
+    app = create_test_app(monkeypatch)
     monkeypatch.setattr(
         pages_endpoint,
         "get_latest_annotation_revision",
@@ -209,20 +236,105 @@ def test_latest_annotation_endpoint_maps_missing_revision_to_404(
         ),
     )
 
-    response = client.get("/api/v1/pages/page_public_001/annotation/latest")
+    response = request(app, "GET", "/api/v1/pages/page_public_001/annotation/latest")
+
+    assert response.status_code == 200
+    assert response.json()["data"] is None
+    assert response.json()["request_id"].startswith("req_")
+
+
+def test_specific_annotation_revision_endpoint_returns_revision(
+    monkeypatch: Any,
+) -> None:
+    app = create_test_app(monkeypatch)
+    monkeypatch.setattr(
+        pages_endpoint,
+        "get_annotation_revision",
+        lambda **kwargs: (
+            sample_revision_result()
+            if kwargs["revision_public_id"] == "rev_public_001"
+            else pytest.fail("应按 revision_id 读取指定 revision")
+        ),
+    )
+
+    response = request(
+        app, "GET", "/api/v1/pages/page_public_001/annotation/revisions/rev_public_001"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["revision_id"] == "rev_public_001"
+
+
+def test_list_annotation_revisions_endpoint_returns_revision_list(
+    monkeypatch: Any,
+) -> None:
+    app = create_test_app(monkeypatch)
+
+    revision = type(
+        "RevisionRecord",
+        (),
+        {
+            "public_id": "rev_public_002",
+            "page_id": 30,
+            "revision_no": 2,
+            "status": "draft",
+            "qc_status": "pending",
+            "created_at": None,
+            "change_summary": "第二次保存",
+        },
+    )()
+
+    monkeypatch.setattr(
+        pages_endpoint,
+        "list_annotation_revisions",
+        lambda **kwargs: (
+            (
+                [revision]
+                if kwargs["page_public_id"] == "page_public_001"
+                else pytest.fail("应按 page_id 列出版本")
+            ),
+            1,
+        ),
+    )
+
+    response = request(app, "GET", "/api/v1/pages/page_public_001/annotation/revisions")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["items"][0]["revision_id"] == "rev_public_002"
+    assert payload["items"][0]["revision_no"] == 2
+    assert payload["items"][0]["change_summary"] == "第二次保存"
+
+
+def test_specific_annotation_revision_endpoint_maps_missing_revision_to_404(
+    monkeypatch: Any,
+) -> None:
+    app = create_test_app(monkeypatch)
+    monkeypatch.setattr(
+        pages_endpoint,
+        "get_annotation_revision",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AnnotationRevisionNotFoundError("标注版本不存在：rev_missing")
+        ),
+    )
+
+    response = request(
+        app, "GET", "/api/v1/pages/page_public_001/annotation/revisions/rev_missing"
+    )
 
     assert_error_response(
         response,
         status_code=404,
         code="ANNOTATION_REVISION_NOT_FOUND",
-        message_contains="还没有标注版本",
+        message_contains="标注版本不存在",
     )
 
 
 def test_post_annotation_revision_endpoint_accepts_wrapped_payload(
     monkeypatch: Any,
 ) -> None:
-    client = create_test_client(monkeypatch)
+    app = create_test_app(monkeypatch)
     captured: dict[str, Any] = {}
 
     def create_revision(**kwargs: Any) -> Any:
@@ -245,7 +357,9 @@ def test_post_annotation_revision_endpoint_accepts_wrapped_payload(
         lambda **_kwargs: pytest.fail("POST 创建后不能重新读取 latest"),
     )
 
-    response = client.post(
+    response = request(
+        app,
+        "POST",
         "/api/v1/pages/page_public_001/annotation/revisions",
         json={
             "annotation_json": {
@@ -271,7 +385,7 @@ def test_post_annotation_revision_endpoint_accepts_wrapped_payload(
 def test_post_annotation_revision_endpoint_maps_conflict_to_409(
     monkeypatch: Any,
 ) -> None:
-    client = create_test_client(monkeypatch)
+    app = create_test_app(monkeypatch)
     monkeypatch.setattr(
         pages_endpoint,
         "create_annotation_revision",
@@ -280,7 +394,9 @@ def test_post_annotation_revision_endpoint_maps_conflict_to_409(
         ),
     )
 
-    response = client.post(
+    response = request(
+        app,
+        "POST",
         "/api/v1/pages/page_public_001/annotation/revisions",
         json={
             "annotation_json": {
@@ -303,7 +419,7 @@ def test_post_annotation_revision_endpoint_maps_conflict_to_409(
 def test_post_annotation_revision_endpoint_maps_invalid_input_to_422(
     monkeypatch: Any,
 ) -> None:
-    client = create_test_client(monkeypatch)
+    app = create_test_app(monkeypatch)
     monkeypatch.setattr(
         pages_endpoint,
         "create_annotation_revision",
@@ -312,7 +428,9 @@ def test_post_annotation_revision_endpoint_maps_invalid_input_to_422(
         ),
     )
 
-    response = client.post(
+    response = request(
+        app,
+        "POST",
         "/api/v1/pages/page_public_001/annotation/revisions",
         json={"page_id": "page_public_001", "k12_annotations": []},
     )
@@ -328,7 +446,7 @@ def test_post_annotation_revision_endpoint_maps_invalid_input_to_422(
 def test_post_annotation_revision_endpoint_requires_create_capability(
     monkeypatch: Any,
 ) -> None:
-    client = create_test_client(monkeypatch)
+    app = create_test_app(monkeypatch)
     monkeypatch.setattr(
         pages_endpoint,
         "ensure_project_capability",
@@ -345,7 +463,9 @@ def test_post_annotation_revision_endpoint_requires_create_capability(
         lambda **_kwargs: pytest.fail("权限不足时不能创建 revision"),
     )
 
-    response = client.post(
+    response = request(
+        app,
+        "POST",
         "/api/v1/pages/page_public_001/annotation/revisions",
         json={"page_id": "page_public_001", "k12_annotations": []},
     )

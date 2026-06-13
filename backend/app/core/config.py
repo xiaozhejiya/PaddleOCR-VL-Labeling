@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -37,11 +38,27 @@ class Settings(BaseSettings):
         validation_alias="STORAGE_ROOT",
     )
     max_upload_mb: int = Field(default=200, validation_alias="MAX_UPLOAD_MB")
+    auto_migrate_on_startup: bool = Field(
+        default=False,
+        validation_alias="AUTO_MIGRATE_ON_STARTUP",
+    )
 
     jwt_secret_key: str | None = Field(default=None, validation_alias="JWT_SECRET_KEY")
     jwt_expire_minutes: int = Field(
         default=1440,
         validation_alias="JWT_EXPIRE_MINUTES",
+    )
+    auth_cookie_name: str = Field(
+        default="k12_access_token",
+        validation_alias="AUTH_COOKIE_NAME",
+    )
+    auth_cookie_secure: bool = Field(
+        default=False,
+        validation_alias="AUTH_COOKIE_SECURE",
+    )
+    auth_cookie_samesite: Literal["lax", "strict", "none"] = Field(
+        default="lax",
+        validation_alias="AUTH_COOKIE_SAMESITE",
     )
 
     paddleocr_vl_enabled: bool = Field(

@@ -12,6 +12,24 @@ ROLE_MIGRATION_PATH = (
     / "versions"
     / "20260603_0002_update_builtin_role_capabilities.py"
 )
+SEED_ADMIN_MIGRATION_PATH = (
+    BACKEND_ROOT
+    / "alembic"
+    / "versions"
+    / "20260608_0003_seed_default_admin.py"
+)
+RELAX_ANNOTATION_OBJECTS_MIGRATION_PATH = (
+    BACKEND_ROOT
+    / "alembic"
+    / "versions"
+    / "20260608_0004_relax_annotation_object_index_constraints.py"
+)
+PROJECT_CREATED_BY_MIGRATION_PATH = (
+    BACKEND_ROOT
+    / "alembic"
+    / "versions"
+    / "20260609_0005_add_project_created_by.py"
+)
 SCHEMA_SQL_PATH = BACKEND_ROOT / "sql" / "schema" / "001_create_core_tables.sql"
 
 
@@ -70,3 +88,24 @@ def test_role_capability_data_migration_updates_existing_databases() -> None:
     assert "UPDATE role_registry" in source
     assert "can_upload_assets" in source
     assert "project.read" in source
+
+
+def test_post_m2_migrations_use_unique_linear_revision_chain() -> None:
+    seed_source = SEED_ADMIN_MIGRATION_PATH.read_text(encoding="utf-8")
+    relax_source = RELAX_ANNOTATION_OBJECTS_MIGRATION_PATH.read_text(encoding="utf-8")
+    created_by_source = PROJECT_CREATED_BY_MIGRATION_PATH.read_text(encoding="utf-8")
+
+    assert 'revision: str = "20260608_0003"' in seed_source
+    assert 'down_revision: str | None = "20260603_0002"' in seed_source
+    assert 'revision: str = "20260608_0004"' in relax_source
+    assert 'down_revision: str | None = "20260608_0003"' in relax_source
+    assert 'revision: str = "20260609_0005"' in created_by_source
+    assert 'down_revision: str | None = "20260608_0004"' in created_by_source
+
+
+def test_project_created_by_migration_avoids_hard_coded_admin_id() -> None:
+    source = PROJECT_CREATED_BY_MIGRATION_PATH.read_text(encoding="utf-8")
+
+    assert "WHERE username = :admin_username" in source
+    assert "UPDATE projects SET created_by = :admin_id" in source
+    assert "created_by = 1" not in source

@@ -118,7 +118,6 @@ def test_m4_annotation_revision_roundtrip_uses_real_sqlalchemy_repository(
 
 
 def _seed_page(db: Session) -> None:
-    db.add(Project(id=10, name="测试项目", schema_version="v1"))
     db.add(
         User(
             id=99,
@@ -127,6 +126,7 @@ def _seed_page(db: Session) -> None:
             status="active",
         )
     )
+    db.add(Project(id=10, name="测试项目", schema_version="v1", created_by=99))
     db.add(
         Asset(
             id=1,

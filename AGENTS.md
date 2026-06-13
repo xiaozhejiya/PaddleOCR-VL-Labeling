@@ -39,6 +39,7 @@
 |---|---|---|
 | `doc/开发文档/mvp_implementation_plan.md` | 准备写代码、拆任务、判断 MVP 下一步 | MVP 阶段、开发顺序、验收标准 |
 | `doc/开发文档/COMMIT_RULES.md` | 准备提交、编写提交信息、审查提交规范 | Git 提交标题、正文格式和验证说明 |
+| `CLAUDE.md` | 使用 Claude Code 快速理解项目背景、命令和文档入口 | Claude Code 快捷入口；详细规则仍以二级 INDEX 和详细文档为准 |
 | `doc/开发文档/后端/INDEX.md` | 后端、数据库、API、权限、安全、导出器任务 | 后端文档导航和后端任务读取路径 |
 | `doc/开发文档/前端/INDEX.md` | 前端、路由、组件、标注工作台、i18n 任务 | 前端文档导航和前端任务读取路径 |
 | `doc/PaddleOCR技术文档/INDEX.md` | PaddleOCR-VL、PP-DocLayoutV3、训练数据和评估集任务 | OCR/VL 技术参考导航 |
